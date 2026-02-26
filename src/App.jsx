@@ -52,8 +52,10 @@ function LoginScreen({ onLogin }) {
 // ─── MAIN APP ───────────────────────────────────────────────
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = sessionStorage.getItem('yf_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = sessionStorage.getItem('yf_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
   });
 
   const handleLogin = (user) => {
@@ -101,17 +103,21 @@ function AppShell({ currentUser, onLogout }) {
   // ─ Load initial data
   useEffect(() => {
     (async () => {
-      const [u, l, t, m] = await Promise.all([db.fetchUsers(), db.fetchLocations(), db.fetchTrailers(), db.fetchMoves()]);
-      setUsers(u.data); setLocations(l.data); setTrailers(t.data); setMoves(m.data);
+      try {
+        const [u, l, t, m] = await Promise.all([db.fetchUsers(), db.fetchLocations(), db.fetchTrailers(), db.fetchMoves()]);
+        setUsers(u.data || []); setLocations(l.data || []); setTrailers(t.data || []); setMoves(m.data || []);
+      } catch (err) {
+        console.error('Failed to load data:', err);
+      }
       setLoading(false);
     })();
   }, []);
 
   // ─ Real-time subscriptions
   useEffect(() => {
-    const moveSub = db.subscribeToMoves(() => { db.fetchMoves().then(r => setMoves(r.data)); });
-    const trailerSub = db.subscribeToTrailers(() => { db.fetchTrailers().then(r => setTrailers(r.data)); });
-    const locSub = db.subscribeToLocations(() => { db.fetchLocations().then(r => setLocations(r.data)); });
+    const moveSub = db.subscribeToMoves(() => { db.fetchMoves().then(r => setMoves(r.data || [])); });
+    const trailerSub = db.subscribeToTrailers(() => { db.fetchTrailers().then(r => setTrailers(r.data || [])); });
+    const locSub = db.subscribeToLocations(() => { db.fetchLocations().then(r => setLocations(r.data || [])); });
     return () => { moveSub.unsubscribe(); trailerSub.unsubscribe(); locSub.unsubscribe(); };
   }, []);
 
@@ -268,7 +274,7 @@ function AppShell({ currentUser, onLogout }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 6 }}>{spots.map(s => { const tr = at(s.id); return (
         <div key={s.id} style={{ padding: '8px 10px', borderRadius: 6, background: tr ? color + '18' : T.sa, border: `1px solid ${tr ? color + '55' : T.bd}`, fontSize: 11, minHeight: 58, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <div style={{ fontWeight: 700, color: T.tm, fontSize: 10 }}>{s.label}</div>
-          {tr ? <><div style={{ fontWeight: 800, color, fontSize: 13, fontFamily: "'JetBrains Mono',monospace" }}>{tr.number}</div><div style={{ fontSize: 9, color: T.td }}>{tr.type} • {tr.status}</div><div style={{ fontSize: 8, color: T.td }}>{tr.carrier}</div></> : <div style={{ fontSize: 10, color: T.td }}>Empty</div>}
+          {tr ? <><div style={{ fontWeight: 800, color, fontSize: 13, fontFamily: "'JetBrains Mono',monospace" }}>{tr.number}</div><div style={{ fontSize: 9, color: T.td }}>{tr.type} • {tr.status}</div><div style={{ fontSize: 8, color: T.td }}>{tr.carrier || ''}</div></> : <div style={{ fontSize: 10, color: T.td }}>Empty</div>}
         </div>); })}</div></div>);
     return (<div>
       <Zone title="🏗️ Shipping Docks" spots={docks.filter(d => d.zone === 'Shipping')} color={T.ac} />
@@ -412,7 +418,7 @@ function AppShell({ currentUser, onLogout }) {
       <div style={{ width: 240, background: T.sf, borderRight: `1px solid ${T.bd}`, display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'sticky', top: 0, height: '100vh' }}>
         <div style={{ padding: '20px 18px', borderBottom: `1px solid ${T.bd}` }}><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><div style={{ width: 36, height: 36, borderRadius: 8, background: `linear-gradient(135deg,${T.ac},#FF8F5C)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🏭</div><div><div style={{ fontWeight: 800, fontSize: 15 }}>YardFlow</div><div style={{ fontSize: 10, color: T.tm }}>Trailer Management</div></div></div></div>
         <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {nav.map(item => <button key={item.id} onClick={() => { setView(item.id); setFilter(''); setSf(''); setHf(''); setUserFilter(''); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, background: view === item.id ? T.ag : 'transparent', border: view === item.id ? `1px solid ${T.ac}44` : '1px solid transparent', color: view === item.id ? T.ac : T.tm, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', textAlign: 'left' }}>
+          {nav.map(item => <button key={item.id} onClick={() => { setView(item.id); setFilter(''); setSf(''); setHf(''); setUserFilter(''); setLocFilter(''); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, background: view === item.id ? T.ag : 'transparent', border: view === item.id ? `1px solid ${T.ac}44` : '1px solid transparent', color: view === item.id ? T.ac : T.tm, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', textAlign: 'left' }}>
             <span style={{ fontSize: 16 }}>{item.icon}</span><span style={{ flex: 1 }}>{item.label}</span>
             {item.count > 0 && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 10, background: T.dg, color: '#fff' }}>{item.count}</span>}
           </button>)}
@@ -473,7 +479,7 @@ function AppShell({ currentUser, onLogout }) {
         {editTrailer && <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><Input label="Type" options={TRAILER_TYPES.map(t => ({ value: t, label: t }))} value={editTrailer.type} onChange={v => setEditTrailer(p => ({ ...p, type: v }))} /><Input label="Status" options={TRAILER_STATUSES.map(s => ({ value: s, label: s }))} value={editTrailer.status} onChange={v => setEditTrailer(p => ({ ...p, status: v }))} /></div>
           <Input label="Location" options={locations.map(l => ({ value: l.id, label: l.label }))} value={editTrailer.location_id} onChange={v => setEditTrailer(p => ({ ...p, location_id: v }))} />
-          <Input label="Carrier" value={editTrailer.carrier} onChange={v => setEditTrailer(p => ({ ...p, carrier: v }))} />
+          <Input label="Carrier" value={editTrailer.carrier || ''} onChange={v => setEditTrailer(p => ({ ...p, carrier: v }))} />
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}><Btn variant="secondary" onClick={() => setEditTrailer(null)}>Cancel</Btn><Btn onClick={handleEditTrailer}>Save</Btn></div>
         </div>}
       </Modal>

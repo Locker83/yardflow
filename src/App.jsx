@@ -78,8 +78,12 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = sessionStorage.getItem('yf_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
+      if (!saved) return null;
+      const u = JSON.parse(saved);
+      // Validate it's a real Supabase user object (has UUID id)
+      if (!u || !u.id || !u.role || !u.name) { sessionStorage.removeItem('yf_user'); return null; }
+      return u;
+    } catch { sessionStorage.removeItem('yf_user'); return null; }
   });
 
   const handleLogin = (user) => {
@@ -123,6 +127,13 @@ function AppShell({ currentUser, onLogout }) {
   const [showAddLoc, setShowAddLoc] = useState(false);
   const [editLoc, setEditLoc] = useState(null);
   const [locFilter, setLocFilter] = useState('');
+
+  // ─ Action form state (MUST be before any early returns to satisfy Rules of Hooks)
+  const [nm, setNm] = useState({ type: 'dock', trailerNumber: '', from: '', to: '', priority: 'normal', notes: '', requestedBy: currentUser.name });
+  const [nt, setNt] = useState({ number: '', type: 'Dry Van', status: 'Empty', location: '', carrier: '', notes: '' });
+  const [newUser, setNewUser] = useState({ username: '', password: '', name: '', role: 'hostler', color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0') });
+  const [newLoc, setNewLoc] = useState({ id: '', label: '', type: 'dock', zone: 'Shipping' });
+  const [newPw, setNewPw] = useState('');
 
   // ─ Load initial data
   useEffect(() => {
@@ -172,14 +183,12 @@ function AppShell({ currentUser, onLogout }) {
   }), [moves, hostlers]);
 
   // ─ Actions
-  const [nm, setNm] = useState({ type: 'dock', trailerNumber: '', from: '', to: '', priority: 'normal', notes: '', requestedBy: currentUser.name });
   const handleCreateMove = async () => {
     await db.createMove({ type: nm.type, trailer_number: nm.trailerNumber, trailer_type: gtt(nm.trailerNumber), from_location: nm.from || null, to_location: nm.to || null, requested_by: nm.requestedBy, requested_by_user: currentUser.id, priority: nm.priority, notes: nm.notes });
     setShowNewMove(false); setNm({ type: 'dock', trailerNumber: '', from: '', to: '', priority: 'normal', notes: '', requestedBy: currentUser.name });
     db.fetchMoves().then(r => setMoves(r.data));
   };
 
-  const [nt, setNt] = useState({ number: '', type: 'Dry Van', status: 'Empty', location: '', carrier: '', notes: '' });
   const handleCreateTrailer = async () => {
     await db.createTrailer({ number: nt.number, type: nt.type, status: nt.status, location_id: nt.location || null, carrier: nt.carrier, notes: nt.notes });
     setShowNewTrailer(false); setNt({ number: '', type: 'Dry Van', status: 'Empty', location: '', carrier: '', notes: '' });
@@ -204,7 +213,6 @@ function AppShell({ currentUser, onLogout }) {
   };
 
   // ─ User management actions
-  const [newUser, setNewUser] = useState({ username: '', password: '', name: '', role: 'hostler', color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0') });
   const handleAddUser = async () => {
     const { error } = await db.createUser(newUser);
     if (error) { alert('Error: ' + error.message); return; }
@@ -352,7 +360,6 @@ function AppShell({ currentUser, onLogout }) {
   };
 
   // Location management
-  const [newLoc, setNewLoc] = useState({ id: '', label: '', type: 'dock', zone: '' });
   const handleAddLoc = async () => {
     const { error } = await db.createLocation(newLoc);
     if (error) { alert('Error: ' + error.message); return; }

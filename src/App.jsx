@@ -1,7 +1,31 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Component } from 'react';
 import * as db from './lib/supabase';
 import { T, ROLE_COLORS, MOVE_TYPES, TRAILER_TYPES, TRAILER_STATUSES, ROLES, mtl, mti, sc,
   Badge, Dot, Card, Btn, Input, Modal, Tbl, TTag, Avatar, Spinner } from './components/UI';
+
+// ─── ERROR BOUNDARY ─────────────────────────────────────
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null, info: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error('ErrorBoundary caught:', error, info); this.setState({ info }); }
+  render() {
+    if (this.state.hasError) {
+      return (<div style={{ background: '#0F172A', color: '#fff', minHeight: '100vh', padding: 40, fontFamily: 'monospace' }}>
+        <h1 style={{ color: '#FF6B6B' }}>⚠️ YardFlow Error</h1>
+        <p style={{ color: '#94A3B8' }}>Something went wrong rendering the app. Here's the error:</p>
+        <pre style={{ background: '#1E293B', padding: 20, borderRadius: 8, overflow: 'auto', fontSize: 13, color: '#FFA500' }}>
+          {this.state.error?.toString()}
+        </pre>
+        <p style={{ color: '#94A3B8', marginTop: 20 }}>Component stack:</p>
+        <pre style={{ background: '#1E293B', padding: 20, borderRadius: 8, overflow: 'auto', fontSize: 12, color: '#64748B' }}>
+          {this.state.info?.componentStack}
+        </pre>
+        <button onClick={() => { sessionStorage.removeItem('yf_user'); window.location.reload(); }} style={{ marginTop: 20, padding: '10px 20px', background: '#3B82F6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>🔄 Clear Session & Reload</button>
+      </div>);
+    }
+    return this.props.children;
+  }
+}
 
 // ─── LOGIN ──────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
@@ -68,7 +92,7 @@ export default function App() {
   };
 
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
-  return <AppShell currentUser={currentUser} onLogout={handleLogout} />;
+  return <ErrorBoundary><AppShell currentUser={currentUser} onLogout={handleLogout} /></ErrorBoundary>;
 }
 
 function AppShell({ currentUser, onLogout }) {
@@ -105,6 +129,7 @@ function AppShell({ currentUser, onLogout }) {
     (async () => {
       try {
         const [u, l, t, m] = await Promise.all([db.fetchUsers(), db.fetchLocations(), db.fetchTrailers(), db.fetchMoves()]);
+        console.log('YARDFLOW DATA:', { users: u, locations: l, trailers: t, moves: m });
         setUsers(u.data || []); setLocations(l.data || []); setTrailers(t.data || []); setMoves(m.data || []);
       } catch (err) {
         console.error('Failed to load data:', err);

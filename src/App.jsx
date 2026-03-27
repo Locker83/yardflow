@@ -7,6 +7,7 @@ import { T, ROLE_COLORS, TRAILER_TYPES, TRAILER_STATUSES, ROLES,
 const MOVE_TYPES = [
   { id: 'to-dock', label: 'To Dock', icon: '🏗️', desc: 'Bring a trailer to a dock' },
   { id: 'from-dock', label: 'From Dock', icon: '🔄', desc: 'Pull a trailer from a dock' },
+  { id: 'yard-move', label: 'Yard Move', icon: '📦', desc: 'Relocate a trailer in the yard' },
 ];
 const mtl = id => MOVE_TYPES.find(m => m.id === id)?.label ?? id;
 const mti = id => MOVE_TYPES.find(m => m.id === id)?.icon ?? '📦';
@@ -128,7 +129,7 @@ function AppShell({ currentUser, onLogout }) {
   const [newLoc, setNewLoc] = useState({ id: '', label: '', type: 'dock', zone: '' });
   // Hostler completion/cancel modals
   const [completeModal, setCompleteModal] = useState(null); // move being completed
-  const [cmFields, setCmFields] = useState({ trailerNumber: '', yardSpot: '' });
+  const [cmFields, setCmFields] = useState({ trailerNumber: '', yardSpot: '', fromSpot: '' });
   const [cancelModal, setCancelModal] = useState(null); // move being cancelled
   const [cancelReason, setCancelReason] = useState('');
 
@@ -225,6 +226,12 @@ function AppShell({ currentUser, onLogout }) {
       updates.to_location = cmFields.yardSpot;
       // trailer_number stays from original (trailer at dock) or hostler can specify
       if (cmFields.trailerNumber) updates.trailer_number = cmFields.trailerNumber;
+    } else if (m.type === 'yard-move') {
+      // Hostler fills: trailer #, from location, to location
+      updates.trailer_number = cmFields.trailerNumber;
+      updates.trailer_type = gtt(cmFields.trailerNumber) || '';
+      updates.from_location = cmFields.fromSpot;
+      updates.to_location = cmFields.yardSpot;
     }
     await db.completeMove(m.id, updates);
 
@@ -245,7 +252,7 @@ function AppShell({ currentUser, onLogout }) {
     }
 
     setCompleteModal(null);
-    setCmFields({ trailerNumber: '', yardSpot: '', trailerType: '' });
+    setCmFields({ trailerNumber: '', yardSpot: '', fromSpot: '', trailerType: '' });
     db.fetchMoves().then(r => setMoves(r.data));
     db.fetchTrailers().then(r => setTrailers(r.data));
   };
@@ -422,7 +429,7 @@ function AppShell({ currentUser, onLogout }) {
 
       {myAct.length > 0 && <><h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: T.in, textTransform: 'uppercase' }}>🔄 My Active Moves</h3>{myAct.map(m => <MC key={m.id} m={m} actions={
         <div style={{ display: 'flex', gap: 8 }}>
-          <Btn variant="success" onClick={() => { setCompleteModal(m); setCmFields({ trailerNumber: '', yardSpot: '', trailerType: '' }); }}>✓ Complete</Btn>
+          <Btn variant="success" onClick={() => { setCompleteModal(m); setCmFields({ trailerNumber: '', yardSpot: '', fromSpot: '', trailerType: '' }); }}>✓ Complete</Btn>
           <Btn variant="secondary" onClick={() => handleReleaseMove(m.id)}>↩ Release</Btn>
           <Btn variant="danger" onClick={() => { setCancelModal(m); setCancelReason(''); }}>✕ Cancel</Btn>
           <div style={{ fontSize: 11, color: T.td, marginTop: 8, alignSelf: 'center', marginLeft: 'auto' }}>Started {db.fmtTime(m.started_at)}</div>
@@ -622,7 +629,13 @@ function AppShell({ currentUser, onLogout }) {
             ))}
           </div>
 
-          <Input label={nm.type === 'to-dock' ? 'Destination Dock' : 'Source Dock'} options={dockLocs.map(l => ({ value: l.id, label: l.label }))} value={nm.dock} onChange={v => setNm(p => ({ ...p, dock: v }))} />
+          {nm.type !== 'yard-move' && (
+            <Input label={nm.type === 'to-dock' ? 'Destination Dock' : 'Source Dock'} options={dockLocs.map(l => ({ value: l.id, label: l.label }))} value={nm.dock} onChange={v => setNm(p => ({ ...p, dock: v }))} />
+          )}
+
+          {nm.type === 'yard-move' && (
+            <div style={{ padding: '10px 14px', background: T.in + '15', borderRadius: 8, fontSize: 12, color: T.in }}>ℹ️ Hostler will input trailer #, from location, and to location when completing this move.</div>
+          )}
 
           {nm.type === 'to-dock' && (
             <Input label="Trailer Type Needed" options={[{ value: '', label: '— Any Type —' }, ...TRAILER_TYPES.map(t => ({ value: t, label: t }))]} value={nm.trailerType} onChange={v => setNm(p => ({ ...p, trailerType: v }))} />
@@ -641,7 +654,7 @@ function AppShell({ currentUser, onLogout }) {
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <Btn variant="secondary" onClick={() => setShowNewMove(false)}>Cancel</Btn>
-            <Btn onClick={handleCreateMove} disabled={!nm.dock}>Submit Request</Btn>
+            <Btn onClick={handleCreateMove} disabled={nm.type !== 'yard-move' && !nm.dock}>Submit Request</Btn>
           </div>
         </div>
       </Modal>
@@ -651,7 +664,8 @@ function AppShell({ currentUser, onLogout }) {
         {completeModal && <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ padding: 14, background: T.sa, borderRadius: 8 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}><span style={{ fontSize: 18 }}>{mti(completeModal.type)}</span><strong>{mtl(completeModal.type)}</strong></div>
-            <div style={{ fontSize: 13, color: T.tm }}>Dock: <strong style={{ color: T.tx }}>{locLabel(completeModal.type === 'to-dock' ? completeModal.to_location : completeModal.from_location)}</strong></div>
+            {completeModal.type !== 'yard-move' && <div style={{ fontSize: 13, color: T.tm }}>Dock: <strong style={{ color: T.tx }}>{locLabel(completeModal.type === 'to-dock' ? completeModal.to_location : completeModal.from_location)}</strong></div>}
+            {completeModal.type === 'yard-move' && <div style={{ fontSize: 13, color: T.tm }}>Relocate a trailer within the yard</div>}
             {completeModal.requested_trailer_type && <div style={{ fontSize: 13, color: T.tm, marginTop: 4 }}>Requested type: <Badge color={T.in}>{completeModal.requested_trailer_type}</Badge></div>}
           </div>
 
@@ -668,9 +682,16 @@ function AppShell({ currentUser, onLogout }) {
             {completeModal.requested_trailer_type && <div style={{ padding: '8px 12px', background: T.in + '15', borderRadius: 6, fontSize: 12, color: T.in }}>ℹ️ A new "To Dock" request for a <strong>{completeModal.requested_trailer_type}</strong> will be auto-created when you complete this.</div>}
           </>}
 
+          {completeModal.type === 'yard-move' && <>
+            <Input label="Trailer #" value={cmFields.trailerNumber} onChange={v => setCmFields(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
+            {cmFields.trailerNumber && trailerMap[cmFields.trailerNumber] && <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Found: {trailerMap[cmFields.trailerNumber].type} — {trailerMap[cmFields.trailerNumber].status} at {locLabel(trailerMap[cmFields.trailerNumber].location_id)}</div>}
+            <Input label="From Location" options={locations.map(l => ({ value: l.id, label: l.label }))} value={cmFields.fromSpot} onChange={v => setCmFields(p => ({ ...p, fromSpot: v }))} />
+            <Input label="To Location" options={locations.map(l => ({ value: l.id, label: l.label }))} value={cmFields.yardSpot} onChange={v => setCmFields(p => ({ ...p, yardSpot: v }))} />
+          </>}
+
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <Btn variant="secondary" onClick={() => setCompleteModal(null)}>Back</Btn>
-            <Btn variant="success" onClick={handleCompleteMove} disabled={!cmFields.trailerNumber || !cmFields.yardSpot}>✓ Complete Move</Btn>
+            <Btn variant="success" onClick={handleCompleteMove} disabled={!cmFields.trailerNumber || !cmFields.yardSpot || (completeModal.type === 'yard-move' && !cmFields.fromSpot)}>✓ Complete Move</Btn>
           </div>
         </div>}
       </Modal>

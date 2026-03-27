@@ -17,7 +17,6 @@ export async function loginUser(username, password) {
     .eq('username', username.toLowerCase())
     .eq('password_hash', password)
     .single();
-
   if (error || !data) return { user: null, error: 'Invalid username or password' };
   if (!data.active) return { user: null, error: 'Account is disabled. Contact your administrator.' };
   return { user: data, error: null };
@@ -25,41 +24,19 @@ export async function loginUser(username, password) {
 
 // ─── USERS ──────────────────────────────────────────────────
 export async function fetchUsers() {
-  const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .order('role')
-    .order('name');
+  const { data, error } = await supabase.from('users').select('*').order('role').order('name');
   return { data: data || [], error };
 }
-
 export async function createUser({ username, password, name, role, color }) {
-  const { data, error } = await supabase
-    .from('users')
-    .insert({ username: username.toLowerCase(), password_hash: password, name, role, color, active: true })
-    .select()
-    .single();
+  const { data, error } = await supabase.from('users').insert({ username: username.toLowerCase(), password_hash: password, name, role, color, active: true }).select().single();
   return { data, error };
 }
-
 export async function updateUser(id, updates) {
-  const { data, error } = await supabase
-    .from('users')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single();
+  const { data, error } = await supabase.from('users').update(updates).eq('id', id).select().single();
   return { data, error };
 }
-
-export async function toggleUserActive(id, active) {
-  return updateUser(id, { active });
-}
-
-export async function resetUserPassword(id, newPassword) {
-  return updateUser(id, { password_hash: newPassword });
-}
-
+export async function toggleUserActive(id, active) { return updateUser(id, { active }); }
+export async function resetUserPassword(id, newPassword) { return updateUser(id, { password_hash: newPassword }); }
 export async function deleteUser(id) {
   const { error } = await supabase.from('users').delete().eq('id', id);
   return { error };
@@ -67,39 +44,19 @@ export async function deleteUser(id) {
 
 // ─── LOCATIONS ──────────────────────────────────────────────
 export async function fetchLocations() {
-  const { data, error } = await supabase
-    .from('locations')
-    .select('*')
-    .order('id');
+  const { data, error } = await supabase.from('locations').select('*').order('id');
   return { data: data || [], error };
 }
-
 export async function createLocation({ id, label, type, zone }) {
-  const { data, error } = await supabase
-    .from('locations')
-    .insert({ id, label, type, zone: zone || null })
-    .select()
-    .single();
+  const { data, error } = await supabase.from('locations').insert({ id, label, type, zone: zone || null }).select().single();
   return { data, error };
 }
-
 export async function updateLocation(id, updates) {
-  const { data, error } = await supabase
-    .from('locations')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single();
+  const { data, error } = await supabase.from('locations').update(updates).eq('id', id).select().single();
   return { data, error };
 }
-
 export async function deleteLocation(id) {
-  // Check if any trailers are at this location
-  const { data: trailersAtLoc } = await supabase
-    .from('trailers')
-    .select('id')
-    .eq('location_id', id)
-    .limit(1);
+  const { data: trailersAtLoc } = await supabase.from('trailers').select('id').eq('location_id', id).limit(1);
   if (trailersAtLoc && trailersAtLoc.length > 0) {
     return { error: { message: 'Cannot delete — trailers are currently at this location. Move them first.' } };
   }
@@ -109,114 +66,93 @@ export async function deleteLocation(id) {
 
 // ─── TRAILERS ───────────────────────────────────────────────
 export async function fetchTrailers() {
-  const { data, error } = await supabase
-    .from('trailers')
-    .select('*')
-    .order('number');
+  const { data, error } = await supabase.from('trailers').select('*').order('number');
   return { data: data || [], error };
 }
-
 export async function createTrailer({ number, type, status, location_id, carrier, notes }) {
-  const { data, error } = await supabase
-    .from('trailers')
-    .insert({ number, type, status, location_id, carrier, notes: notes || '' })
-    .select()
-    .single();
+  const { data, error } = await supabase.from('trailers').insert({ number, type, status, location_id, carrier, notes: notes || '' }).select().single();
   return { data, error };
 }
-
 export async function updateTrailer(id, updates) {
-  const { data, error } = await supabase
-    .from('trailers')
-    .update({ ...updates, last_moved: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single();
+  const { data, error } = await supabase.from('trailers').update({ ...updates, last_moved: new Date().toISOString() }).eq('id', id).select().single();
   return { data, error };
 }
-
 export async function updateTrailerByNumber(number, updates) {
-  const { data, error } = await supabase
-    .from('trailers')
-    .update({ ...updates, last_moved: new Date().toISOString() })
-    .eq('number', number)
-    .select()
-    .single();
+  const { data, error } = await supabase.from('trailers').update({ ...updates, last_moved: new Date().toISOString() }).eq('number', number).select().single();
   return { data, error };
 }
 
 // ─── MOVES ──────────────────────────────────────────────────
 export async function fetchMoves() {
-  const { data, error } = await supabase
-    .from('moves')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const { data, error } = await supabase.from('moves').select('*').order('created_at', { ascending: false });
   return { data: data || [], error };
 }
 
-export async function createMove({ type, trailer_number, trailer_type, from_location, to_location, requested_by, requested_by_user, priority, notes }) {
-  const { data, error } = await supabase
-    .from('moves')
-    .insert({
-      type, trailer_number, trailer_type: trailer_type || '',
-      from_location, to_location,
-      requested_by: requested_by || '', requested_by_user,
-      priority: priority || 'normal', notes: notes || '',
-      status: 'pending',
-    })
-    .select()
-    .single();
+export async function createMove({ type, trailer_number, trailer_type, from_location, to_location, requested_by, requested_by_user, priority, notes, requested_trailer_type }) {
+  const { data, error } = await supabase.from('moves').insert({
+    type, trailer_number: trailer_number || '', trailer_type: trailer_type || '',
+    from_location: from_location || null, to_location: to_location || null,
+    requested_by: requested_by || '', requested_by_user,
+    priority: priority || 'normal', notes: notes || '',
+    requested_trailer_type: requested_trailer_type || '',
+    status: 'pending',
+  }).select().single();
   return { data, error };
 }
 
 export async function claimMove(moveId, userId) {
   const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from('moves')
+  const { data, error } = await supabase.from('moves')
     .update({ claimed_by: userId, claimed_at: now, started_at: now, status: 'in-progress' })
-    .eq('id', moveId)
-    .select()
-    .single();
+    .eq('id', moveId).select().single();
   return { data, error };
 }
 
-export async function completeMove(moveId, trailerNumber, toLocation) {
+// Complete with optional hostler-provided fields (trailer_number, from/to location)
+export async function completeMove(moveId, hostlerUpdates = {}) {
   const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from('moves')
-    .update({ status: 'completed', completed_at: now })
-    .eq('id', moveId)
-    .select()
-    .single();
+  const upd = { status: 'completed', completed_at: now };
+  if (hostlerUpdates.trailer_number) upd.trailer_number = hostlerUpdates.trailer_number;
+  if (hostlerUpdates.trailer_type) upd.trailer_type = hostlerUpdates.trailer_type;
+  if (hostlerUpdates.from_location) upd.from_location = hostlerUpdates.from_location;
+  if (hostlerUpdates.to_location) upd.to_location = hostlerUpdates.to_location;
+
+  const { data, error } = await supabase.from('moves').update(upd).eq('id', moveId).select().single();
 
   // Update trailer location
-  if (trailerNumber && toLocation) {
-    await updateTrailerByNumber(trailerNumber, { location_id: toLocation });
-  }
+  const tNum = hostlerUpdates.trailer_number || data?.trailer_number;
+  const tLoc = hostlerUpdates.to_location || data?.to_location;
+  if (tNum && tLoc) await updateTrailerByNumber(tNum, { location_id: tLoc });
 
   return { data, error };
 }
 
-// ─── REALTIME SUBSCRIPTIONS ─────────────────────────────────
-export function subscribeToMoves(callback) {
-  return supabase
-    .channel('moves-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'moves' }, callback)
-    .subscribe();
+// Hostler releases — back to pending
+export async function releaseMove(moveId) {
+  const { data, error } = await supabase.from('moves')
+    .update({ claimed_by: null, claimed_at: null, started_at: null, status: 'pending' })
+    .eq('id', moveId).select().single();
+  return { data, error };
 }
 
-export function subscribeToTrailers(callback) {
-  return supabase
-    .channel('trailers-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'trailers' }, callback)
-    .subscribe();
+// Hostler cancels — stays in log with reason
+export async function cancelMove(moveId, reason) {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase.from('moves')
+    .update({ status: 'cancelled', completed_at: now, cancel_reason: reason || '' })
+    .eq('id', moveId).select().single();
+  return { data, error };
 }
 
-export function subscribeToLocations(callback) {
-  return supabase
-    .channel('locations-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, callback)
-    .subscribe();
+// ─── REALTIME ───────────────────────────────────────────────
+export function subscribeToMoves(cb) {
+  return supabase.channel('moves-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'moves' }, cb).subscribe();
+}
+export function subscribeToTrailers(cb) {
+  return supabase.channel('trailers-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'trailers' }, cb).subscribe();
+}
+export function subscribeToLocations(cb) {
+  return supabase.channel('locations-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, cb).subscribe();
 }
 
 // ─── HELPERS ────────────────────────────────────────────────
@@ -224,7 +160,6 @@ export function fmtTime(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
-
 export function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);

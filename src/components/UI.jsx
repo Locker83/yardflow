@@ -7,11 +7,6 @@ export const T = {
 
 export const ROLE_COLORS = { admin:"#EF4444", manager:"#FF6B2C", warehouse:"#60A5FA", hostler:"#22C55E" };
 
-export const MOVE_TYPES = [
-  {id:"dock",label:"Spot to Dock",icon:"🏗️"},{id:"pull",label:"Pull from Dock",icon:"🔄"},
-  {id:"adjust",label:"Adjust Dock Plate",icon:"⚙️"},{id:"yard-move",label:"Yard Relocation",icon:"📦"},
-  {id:"gate-in",label:"Gate Check-In",icon:"🚪"},{id:"gate-out",label:"Gate Departure",icon:"🚛"}
-];
 export const TRAILER_TYPES = ["Dry Van","Reefer","Flatbed","Tanker"];
 export const TRAILER_STATUSES = ["Empty","Loaded","Partial","Sealed","Live Load"];
 export const ROLES = [
@@ -21,9 +16,6 @@ export const ROLES = [
   {id:"hostler",label:"Hostler",desc:"Claim & complete moves"}
 ];
 
-export const mtl = id => MOVE_TYPES.find(m=>m.id===id)?.label ?? id;
-export const mti = id => MOVE_TYPES.find(m=>m.id===id)?.icon ?? "📦";
-export const sc = s => ({pending:T.wn,"in-progress":T.in,completed:T.ok}[s]??T.tm);
 
 export const Badge = ({color,children,small}) => <span style={{display:"inline-flex",alignItems:"center",padding:small?"1px 6px":"2px 10px",borderRadius:4,fontSize:small?10:11,fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase",background:color+"22",color,border:`1px solid ${color}44`,whiteSpace:"nowrap"}}>{children}</span>;
 

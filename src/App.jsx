@@ -132,6 +132,20 @@ function AppShell({ currentUser, onLogout }) {
   const [cancelModal, setCancelModal] = useState(null); // move being cancelled
   const [cancelReason, setCancelReason] = useState('');
 
+  // Screen access controls (admin-configurable, stored in localStorage)
+  const DEFAULT_ACCESS = {
+    admin: ['dashboard', 'moves', 'trailers', 'yard', 'hostler', 'analytics', 'locations', 'users'],
+    manager: ['dashboard', 'moves', 'trailers', 'yard', 'analytics'],
+    warehouse: ['moves', 'trailers', 'yard'],
+    hostler: ['hostler', 'yard'],
+  };
+  const [screenAccess, setScreenAccess] = useState(() => {
+    try {
+      const saved = localStorage.getItem('yf_screen_access');
+      return saved ? JSON.parse(saved) : DEFAULT_ACCESS;
+    } catch { return DEFAULT_ACCESS; }
+  });
+
   // ─ Load data
   useEffect(() => {
     (async () => {
@@ -439,9 +453,42 @@ function AppShell({ currentUser, onLogout }) {
   // ─── RENDER: USERS ──────────────────────────────────────────
   const renderUsers = () => {
     const filtered = users.filter(u => !userFilter || u.name.toLowerCase().includes(userFilter.toLowerCase()) || u.username.toLowerCase().includes(userFilter.toLowerCase()));
+    const configRoles = ['manager', 'warehouse', 'hostler']; // admin always has full access
+    const configScreens = allScreens.filter(s => s.id !== 'users' && s.id !== 'locations'); // admin-only screens not configurable
     return (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><Btn onClick={() => setShowAddUser(true)}>+ Add User</Btn><Input placeholder="Search..." value={userFilter} onChange={setUserFilter} style={{ width: 260 }} /><div style={{ marginLeft: 'auto', fontSize: 13, color: T.tm }}>{users.filter(u => u.active).length} active · {users.length} total</div></div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>{ROLES.map(r => { const count = users.filter(u => u.role === r.id && u.active).length; return (<Card key={r.id} style={{ padding: 14 }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase' }}>{r.label}s</div><div style={{ fontSize: 24, fontWeight: 800, color: ROLE_COLORS[r.id], marginTop: 4 }}>{count}</div></div><Badge color={ROLE_COLORS[r.id]}>{r.id}</Badge></div></Card>); })}</div>
+
+      {/* Screen Access Controls */}
+      <Card>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🔐 Screen Access by Role</h3>
+          <Btn small variant="ghost" onClick={() => updateScreenAccess(DEFAULT_ACCESS)}>Reset to Defaults</Btn>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr>
+              <th style={{ textAlign: 'left', padding: '10px 12px', borderBottom: `1px solid ${T.bd}`, color: T.tm, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>Screen</th>
+              {configRoles.map(r => <th key={r} style={{ textAlign: 'center', padding: '10px 12px', borderBottom: `1px solid ${T.bd}`, color: ROLE_COLORS[r], fontWeight: 700, fontSize: 12, textTransform: 'uppercase' }}>{r}</th>)}
+            </tr></thead>
+            <tbody>
+              {configScreens.map(s => (
+                <tr key={s.id} style={{ borderBottom: `1px solid ${T.bd}11` }}>
+                  <td style={{ padding: '10px 12px', color: T.tx }}><span style={{ marginRight: 8 }}>{s.icon}</span>{s.label}</td>
+                  {configRoles.map(r => {
+                    const hasAccess = (screenAccess[r] || []).includes(s.id);
+                    return <td key={r} style={{ textAlign: 'center', padding: '10px 12px' }}>
+                      <button onClick={() => toggleAccess(r, s.id)} style={{ width: 32, height: 32, borderRadius: 6, border: `2px solid ${hasAccess ? T.ok : T.bd}`, background: hasAccess ? T.ok + '22' : 'transparent', color: hasAccess ? T.ok : T.td, cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{hasAccess ? '✓' : ''}</button>
+                    </td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ marginTop: 12, fontSize: 11, color: T.td }}>Admin always has full access. Users & Locations are admin-only.</div>
+      </Card>
+
       <Card style={{ padding: 0, overflow: 'hidden' }}>
         <Tbl columns={[{ key: 'av', label: '', render: r => <Avatar name={r.name} color={r.color} size={28} /> }, { key: 'name', label: 'Name', render: r => <div><div style={{ fontWeight: 600 }}>{r.name}</div><div style={{ fontSize: 11, color: T.td, fontFamily: "'JetBrains Mono',monospace" }}>{r.username}</div></div> }, { key: 'role', label: 'Role', render: r => <Badge color={ROLE_COLORS[r.role]}>{r.role}</Badge> }, { key: 'active', label: 'Status', render: r => r.active ? <Badge color={T.ok}>Active</Badge> : <Badge color={T.dg}>Disabled</Badge> }, { key: 'cr', label: 'Created', render: r => db.fmtDate(r.created_at) }, { key: 'actions', label: 'Actions', render: r => (<div style={{ display: 'flex', gap: 6 }}><Btn small variant="ghost" onClick={e => { e.stopPropagation(); setEditUser({ ...r }); }}>✏️</Btn><Btn small variant="ghost" onClick={e => { e.stopPropagation(); setShowPwReset(r); }}>🔑</Btn><Btn small variant="ghost" onClick={e => { e.stopPropagation(); handleToggleUser(r.id, r.active); }}>{r.active ? '🚫' : '✅'}</Btn>{r.id !== currentUser.id && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); if (confirm(`Delete ${r.name}?`)) handleDeleteUser(r.id); }}>🗑️</Btn>}</div>) }]} data={filtered.sort((a, b) => { const ro = { admin: 0, manager: 1, warehouse: 2, hostler: 3 }; return (ro[a.role] ?? 9) - (ro[b.role] ?? 9); })} />
       </Card>
@@ -498,18 +545,31 @@ function AppShell({ currentUser, onLogout }) {
     </div>);
   };
 
+  // Screen access helper functions
+  const updateScreenAccess = (newAccess) => {
+    setScreenAccess(newAccess);
+    localStorage.setItem('yf_screen_access', JSON.stringify(newAccess));
+  };
+  const toggleAccess = (roleId, screenId) => {
+    if (roleId === 'admin' && (screenId === 'users' || screenId === 'locations')) return;
+    const current = screenAccess[roleId] || [];
+    const updated = current.includes(screenId) ? current.filter(s => s !== screenId) : [...current, screenId];
+    updateScreenAccess({ ...screenAccess, [roleId]: updated });
+  };
+
   // ─── NAV ────────────────────────────────────────────────────
-  const allNav = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊', roles: ['admin', 'manager'] },
-    { id: 'moves', label: 'Move Requests', icon: '🔄', count: pending.length, roles: ['admin', 'manager', 'warehouse'] },
-    { id: 'trailers', label: 'Trailer Inventory', icon: '🚛', roles: ['admin', 'manager', 'warehouse'] },
-    { id: 'yard', label: 'Yard Map', icon: '🗺️', roles: ['admin', 'manager', 'warehouse', 'hostler'] },
-    { id: 'hostler', label: 'Hostler View', icon: '👷', roles: ['admin', 'hostler'] },
-    { id: 'analytics', label: 'Analytics', icon: '📈', roles: ['admin', 'manager'] },
-    { id: 'locations', label: 'Locations', icon: '📍', roles: ['admin'] },
-    { id: 'users', label: 'Users', icon: '👥', roles: ['admin'] },
+  const allScreens = [
+    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+    { id: 'moves', label: 'Move Requests', icon: '🔄', count: pending.length },
+    { id: 'trailers', label: 'Trailer Inventory', icon: '🚛' },
+    { id: 'yard', label: 'Yard Map', icon: '🗺️' },
+    { id: 'hostler', label: 'Hostler View', icon: '👷' },
+    { id: 'analytics', label: 'Analytics', icon: '📈' },
+    { id: 'locations', label: 'Locations', icon: '📍' },
+    { id: 'users', label: 'Users', icon: '👥' },
   ];
-  const nav = allNav.filter(n => n.roles.includes(role));
+  const myAccess = screenAccess[role] || DEFAULT_ACCESS[role] || [];
+  const nav = allScreens.filter(s => myAccess.includes(s.id));
 
   return (
     <div style={{ background: T.bg, color: T.tx, minHeight: '100vh', display: 'flex' }}>
@@ -602,13 +662,15 @@ function AppShell({ currentUser, onLogout }) {
           </>}
 
           {completeModal.type === 'from-dock' && <>
+            <Input label="Trailer # Being Pulled" value={cmFields.trailerNumber} onChange={v => setCmFields(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
+            {cmFields.trailerNumber && trailerMap[cmFields.trailerNumber] && <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Found: {trailerMap[cmFields.trailerNumber].type} — {trailerMap[cmFields.trailerNumber].status} at {locLabel(trailerMap[cmFields.trailerNumber].location_id)}</div>}
             <Input label="Dropped At (Yard Spot)" options={yardLocs.map(l => ({ value: l.id, label: l.label }))} value={cmFields.yardSpot} onChange={v => setCmFields(p => ({ ...p, yardSpot: v }))} />
             {completeModal.requested_trailer_type && <div style={{ padding: '8px 12px', background: T.in + '15', borderRadius: 6, fontSize: 12, color: T.in }}>ℹ️ A new "To Dock" request for a <strong>{completeModal.requested_trailer_type}</strong> will be auto-created when you complete this.</div>}
           </>}
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <Btn variant="secondary" onClick={() => setCompleteModal(null)}>Back</Btn>
-            <Btn variant="success" onClick={handleCompleteMove} disabled={completeModal.type === 'to-dock' ? (!cmFields.trailerNumber || !cmFields.yardSpot) : !cmFields.yardSpot}>✓ Complete Move</Btn>
+            <Btn variant="success" onClick={handleCompleteMove} disabled={!cmFields.trailerNumber || !cmFields.yardSpot}>✓ Complete Move</Btn>
           </div>
         </div>}
       </Modal>

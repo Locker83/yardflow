@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, Component } from 'react';
 import * as db from './lib/supabase';
-import { T, ROLE_COLORS, TRAILER_TYPES, TRAILER_STATUSES, ROLES,
+import { T, ROLE_COLORS, ROLES,
   Badge, Dot, Card, Btn, Input, Modal, Tbl, TTag, Avatar, Spinner } from './components/UI';
 
 // Move type helpers (new simplified types)
@@ -132,10 +132,17 @@ function AppShell({ currentUser, onLogout }) {
   const [cmFields, setCmFields] = useState({ trailerNumber: '', yardSpot: '', fromSpot: '' });
   const [cancelModal, setCancelModal] = useState(null); // move being cancelled
   const [cancelReason, setCancelReason] = useState('');
+  const [settings, setSettings] = useState(db.DEFAULT_SETTINGS);
+  const [newType, setNewType] = useState('');
+  const [newStatus, setNewStatus] = useState('');
+
+  // Derived from settings
+  const TRAILER_TYPES = settings.trailerTypes || db.DEFAULT_SETTINGS.trailerTypes;
+  const TRAILER_STATUSES = settings.trailerStatuses || db.DEFAULT_SETTINGS.trailerStatuses;
 
   // Screen access controls (admin-configurable, stored in localStorage)
   const DEFAULT_ACCESS = {
-    admin: ['dashboard', 'moves', 'trailers', 'yard', 'hostler', 'analytics', 'locations', 'users'],
+    admin: ['dashboard', 'moves', 'trailers', 'yard', 'hostler', 'analytics', 'locations', 'settings', 'users'],
     manager: ['dashboard', 'moves', 'trailers', 'yard', 'analytics'],
     warehouse: ['moves', 'trailers', 'yard'],
     hostler: ['hostler', 'yard'],
@@ -151,8 +158,9 @@ function AppShell({ currentUser, onLogout }) {
   useEffect(() => {
     (async () => {
       try {
-        const [u, l, t, m] = await Promise.all([db.fetchUsers(), db.fetchLocations(), db.fetchTrailers(), db.fetchMoves()]);
+        const [u, l, t, m, s] = await Promise.all([db.fetchUsers(), db.fetchLocations(), db.fetchTrailers(), db.fetchMoves(), db.fetchSettings()]);
         setUsers(u.data || []); setLocations(l.data || []); setTrailers(t.data || []); setMoves(m.data || []);
+        if (s.data) setSettings(s.data);
       } catch (err) { console.error('Failed to load data:', err); }
       setLoading(false);
     })();
@@ -162,7 +170,8 @@ function AppShell({ currentUser, onLogout }) {
     const moveSub = db.subscribeToMoves(() => { db.fetchMoves().then(r => setMoves(r.data || [])); });
     const trailerSub = db.subscribeToTrailers(() => { db.fetchTrailers().then(r => setTrailers(r.data || [])); });
     const locSub = db.subscribeToLocations(() => { db.fetchLocations().then(r => setLocations(r.data || [])); });
-    return () => { moveSub.unsubscribe(); trailerSub.unsubscribe(); locSub.unsubscribe(); };
+    const settSub = db.subscribeToSettings(() => { db.fetchSettings().then(r => { if (r.data) setSettings(r.data); }); });
+    return () => { moveSub.unsubscribe(); trailerSub.unsubscribe(); locSub.unsubscribe(); settSub.unsubscribe(); };
   }, []);
 
   useEffect(() => { const t = setInterval(() => setClock(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -236,7 +245,7 @@ function AppShell({ currentUser, onLogout }) {
     await db.completeMove(m.id, updates);
 
     // If from-dock had a requested type back, auto-create a to-dock move
-    if (m.type === 'from-dock' && m.requested_trailer_type) {
+    if (m.type === 'from-dock' && m.requested_trailer_type && settings.autoCreateSendBack) {
       await db.createMove({
         type: 'to-dock',
         trailer_number: '',
@@ -461,7 +470,7 @@ function AppShell({ currentUser, onLogout }) {
   const renderUsers = () => {
     const filtered = users.filter(u => !userFilter || u.name.toLowerCase().includes(userFilter.toLowerCase()) || u.username.toLowerCase().includes(userFilter.toLowerCase()));
     const configRoles = ['manager', 'warehouse', 'hostler']; // admin always has full access
-    const configScreens = allScreens.filter(s => s.id !== 'users' && s.id !== 'locations'); // admin-only screens not configurable
+    const configScreens = allScreens.filter(s => s.id !== 'users' && s.id !== 'locations' && s.id !== 'settings'); // admin-only screens not configurable
     return (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><Btn onClick={() => setShowAddUser(true)}>+ Add User</Btn><Input placeholder="Search..." value={userFilter} onChange={setUserFilter} style={{ width: 260 }} /><div style={{ marginLeft: 'auto', fontSize: 13, color: T.tm }}>{users.filter(u => u.active).length} active · {users.length} total</div></div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>{ROLES.map(r => { const count = users.filter(u => u.role === r.id && u.active).length; return (<Card key={r.id} style={{ padding: 14 }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase' }}>{r.label}s</div><div style={{ fontSize: 24, fontWeight: 800, color: ROLE_COLORS[r.id], marginTop: 4 }}>{count}</div></div><Badge color={ROLE_COLORS[r.id]}>{r.id}</Badge></div></Card>); })}</div>
@@ -552,13 +561,93 @@ function AppShell({ currentUser, onLogout }) {
     </div>);
   };
 
+  // ─── RENDER: SETTINGS ────────────────────────────────────────
+  const saveSetting = async (key, value) => {
+    const updated = { ...settings, [key]: value };
+    setSettings(updated);
+    await db.updateSettings(updated);
+  };
+  const renderSettings = () => {
+    const ListEditor = ({ title, items, onAdd, onRemove, newVal, setNewVal, placeholder }) => (
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.tx, marginBottom: 10 }}>{title}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+          {items.map(item => (
+            <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: T.sa, border: `1px solid ${T.bd}`, borderRadius: 6, fontSize: 13 }}>
+              <span>{item}</span>
+              <button onClick={() => onRemove(item)} style={{ background: 'none', border: 'none', color: T.dg, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit', padding: 0, lineHeight: 1 }}>✕</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input value={newVal} onChange={e => setNewVal(e.target.value)} placeholder={placeholder} onKeyDown={e => { if (e.key === 'Enter' && newVal.trim()) { onAdd(); } }} style={{ flex: 1, padding: '8px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+          <Btn small onClick={onAdd} disabled={!newVal.trim()}>+ Add</Btn>
+        </div>
+      </div>
+    );
+    return (<div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>🚛 Trailer Types</h3>
+        <ListEditor title="" items={TRAILER_TYPES}
+          onAdd={() => { if (newType.trim() && !TRAILER_TYPES.includes(newType.trim())) { saveSetting('trailerTypes', [...TRAILER_TYPES, newType.trim()]); setNewType(''); } }}
+          onRemove={item => { if (confirm(`Remove "${item}" trailer type?`)) saveSetting('trailerTypes', TRAILER_TYPES.filter(t => t !== item)); }}
+          newVal={newType} setNewVal={setNewType} placeholder="e.g. Intermodal, Container..." />
+      </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>📋 Trailer Statuses</h3>
+        <ListEditor title="" items={TRAILER_STATUSES}
+          onAdd={() => { if (newStatus.trim() && !TRAILER_STATUSES.includes(newStatus.trim())) { saveSetting('trailerStatuses', [...TRAILER_STATUSES, newStatus.trim()]); setNewStatus(''); } }}
+          onRemove={item => { if (confirm(`Remove "${item}" status?`)) saveSetting('trailerStatuses', TRAILER_STATUSES.filter(s => s !== item)); }}
+          newVal={newStatus} setNewVal={setNewStatus} placeholder="e.g. Damaged, Quarantine..." />
+      </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>📊 Performance Targets</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Moves/Hour Target</label>
+            <input type="number" value={settings.movesPerHourTarget} onChange={e => saveSetting('movesPerHourTarget', parseInt(e.target.value) || 0)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Max Minutes/Move</label>
+            <input type="number" value={settings.maxMoveMinutes} onChange={e => saveSetting('maxMoveMinutes', parseInt(e.target.value) || 0)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Shift Hours</label>
+            <input type="number" value={settings.shiftHours} onChange={e => saveSetting('shiftHours', parseInt(e.target.value) || 0)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+          </div>
+        </div>
+        <div style={{ marginTop: 14, display: 'flex', gap: 20 }}>
+          <div style={{ fontSize: 12, color: T.td }}>Moves flagged <Badge color={T.dg} small>SLOW</Badge> if over {settings.maxMoveMinutes} min</div>
+          <div style={{ fontSize: 12, color: T.td }}>Hostler target: {settings.movesPerHourTarget} moves/hr × {settings.shiftHours}hr = <strong style={{ color: T.ok }}>{settings.movesPerHourTarget * settings.shiftHours} moves/shift</strong></div>
+        </div>
+      </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>⚙️ Move Behavior</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button onClick={() => saveSetting('autoCreateSendBack', !settings.autoCreateSendBack)} style={{ width: 44, height: 24, borderRadius: 12, border: 'none', background: settings.autoCreateSendBack ? T.ok : T.bd, cursor: 'pointer', position: 'relative', transition: 'background 0.2s' }}>
+            <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: settings.autoCreateSendBack ? 23 : 3, transition: 'left 0.2s' }} />
+          </button>
+          <div><div style={{ fontSize: 13, fontWeight: 600, color: T.tx }}>Auto-create "To Dock" on From Dock completion</div><div style={{ fontSize: 11, color: T.td }}>When a From Dock request includes a trailer type needed back, automatically create a new To Dock move</div></div>
+        </div>
+      </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>🏷️ Site Name</h3>
+        <Input label="Displayed in header and login screen" value={settings.siteName} onChange={v => saveSetting('siteName', v)} placeholder="YardFlow" />
+      </Card>
+    </div>);
+  };
+
   // Screen access helper functions
   const updateScreenAccess = (newAccess) => {
     setScreenAccess(newAccess);
     localStorage.setItem('yf_screen_access', JSON.stringify(newAccess));
   };
   const toggleAccess = (roleId, screenId) => {
-    if (roleId === 'admin' && (screenId === 'users' || screenId === 'locations')) return;
+    if (roleId === 'admin' && (screenId === 'users' || screenId === 'locations' || screenId === 'settings')) return;
     const current = screenAccess[roleId] || [];
     const updated = current.includes(screenId) ? current.filter(s => s !== screenId) : [...current, screenId];
     updateScreenAccess({ ...screenAccess, [roleId]: updated });
@@ -573,6 +662,7 @@ function AppShell({ currentUser, onLogout }) {
     { id: 'hostler', label: 'Hostler View', icon: '👷' },
     { id: 'analytics', label: 'Analytics', icon: '📈' },
     { id: 'locations', label: 'Locations', icon: '📍' },
+    { id: 'settings', label: 'Settings', icon: '⚙️' },
     { id: 'users', label: 'Users', icon: '👥' },
   ];
   const myAccess = screenAccess[role] || DEFAULT_ACCESS[role] || [];
@@ -612,6 +702,7 @@ function AppShell({ currentUser, onLogout }) {
           {view === 'hostler' && renderHostler()}
           {view === 'analytics' && renderAnalytics()}
           {view === 'locations' && isAdmin && renderLocations()}
+          {view === 'settings' && isAdmin && renderSettings()}
           {view === 'users' && isAdmin && renderUsers()}
         </div>
       </div>

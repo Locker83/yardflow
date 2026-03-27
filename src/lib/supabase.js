@@ -144,6 +144,28 @@ export async function cancelMove(moveId, reason) {
   return { data, error };
 }
 
+// ─── SETTINGS ───────────────────────────────────────────────
+export const DEFAULT_SETTINGS = {
+  trailerTypes: ['Dry Van', 'Reefer', 'Flatbed', 'Tanker'],
+  trailerStatuses: ['Empty', 'Loaded', 'Partial', 'Sealed', 'Live Load'],
+  siteName: 'YardFlow',
+  movesPerHourTarget: 4,
+  maxMoveMinutes: 30,
+  shiftHours: 10,
+  autoCreateSendBack: true,
+};
+
+export async function fetchSettings() {
+  const { data, error } = await supabase.from('settings').select('data').eq('id', 'global').single();
+  if (error || !data) return { data: DEFAULT_SETTINGS, error };
+  return { data: { ...DEFAULT_SETTINGS, ...data.data }, error: null };
+}
+
+export async function updateSettings(newData) {
+  const { data, error } = await supabase.from('settings').update({ data: newData, updated_at: new Date().toISOString() }).eq('id', 'global').select().single();
+  return { data, error };
+}
+
 // ─── REALTIME ───────────────────────────────────────────────
 export function subscribeToMoves(cb) {
   return supabase.channel('moves-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'moves' }, cb).subscribe();
@@ -153,6 +175,9 @@ export function subscribeToTrailers(cb) {
 }
 export function subscribeToLocations(cb) {
   return supabase.channel('locations-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, cb).subscribe();
+}
+export function subscribeToSettings(cb) {
+  return supabase.channel('settings-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, cb).subscribe();
 }
 
 // ─── HELPERS ────────────────────────────────────────────────

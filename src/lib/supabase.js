@@ -148,6 +148,8 @@ export async function cancelMove(moveId, reason) {
 export const DEFAULT_SETTINGS = {
   trailerTypes: ['Dry Van', 'Reefer', 'Flatbed', 'Tanker'],
   trailerStatuses: ['Empty', 'Loaded', 'Partial', 'Sealed', 'Live Load'],
+  carriers: ['PepsiCo', 'Frito-Lay', 'Swift', 'JB Hunt', 'Werner', 'Schneider', 'XPO', 'FedEx', 'UPS'],
+  loadTypes: ['Drop', 'Pick', 'Live Unload', 'Live Load'],
   siteName: 'YardFlow',
   movesPerHourTarget: 4,
   maxMoveMinutes: 30,
@@ -164,6 +166,25 @@ export async function fetchSettings() {
 export async function updateSettings(newData) {
   const { data, error } = await supabase.from('settings').update({ data: newData, updated_at: new Date().toISOString() }).eq('id', 'global').select().single();
   return { data, error };
+}
+
+// ─── GATE LOG ───────────────────────────────────────────────
+export async function fetchGateLog() {
+  const { data, error } = await supabase.from('gate_log').select('*').order('created_at', { ascending: false }).limit(200);
+  return { data: data || [], error };
+}
+
+export async function createGateEntry({ direction, load_id, trailer_number, carrier, load_type, notes, logged_by, logged_by_name }) {
+  const { data, error } = await supabase.from('gate_log').insert({
+    direction, load_id: load_id || '', trailer_number: trailer_number || '',
+    carrier: carrier || '', load_type: load_type || '',
+    notes: notes || '', logged_by, logged_by_name: logged_by_name || '',
+  }).select().single();
+  return { data, error };
+}
+
+export function subscribeToGateLog(cb) {
+  return supabase.channel('gate-log-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'gate_log' }, cb).subscribe();
 }
 
 // ─── REALTIME ───────────────────────────────────────────────

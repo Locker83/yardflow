@@ -122,7 +122,7 @@ function AppShell({ currentUser, onLogout }) {
   const [trailers, setTrailers] = useState([]);
   const [moves, setMoves] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState(role === 'hostler' ? 'hostler' : 'dashboard');
+  const [view, setView] = useState(role === 'hostler' ? 'hostler' : role === 'guard' ? 'guard' : 'dashboard');
   const [showNewMove, setShowNewMove] = useState(false);
   const [showNewTrailer, setShowNewTrailer] = useState(false);
   const [editTrailer, setEditTrailer] = useState(null);
@@ -153,17 +153,26 @@ function AppShell({ currentUser, onLogout }) {
   const [settings, setSettings] = useState(db.DEFAULT_SETTINGS);
   const [newType, setNewType] = useState('');
   const [newStatus, setNewStatus] = useState('');
+  const [newCarrier, setNewCarrier] = useState('');
+  const [newLoadType, setNewLoadType] = useState('');
+  // Gate log
+  const [gateLog, setGateLog] = useState([]);
+  const [gateEntry, setGateEntry] = useState({ direction: 'in', load_id: '', trailer_number: '', carrier: '', load_type: '', notes: '' });
+  const [gateFilter, setGateFilter] = useState('');
 
   // Derived from settings
   const TRAILER_TYPES = settings.trailerTypes || db.DEFAULT_SETTINGS.trailerTypes;
   const TRAILER_STATUSES = settings.trailerStatuses || db.DEFAULT_SETTINGS.trailerStatuses;
+  const CARRIERS = settings.carriers || db.DEFAULT_SETTINGS.carriers;
+  const LOAD_TYPES = settings.loadTypes || db.DEFAULT_SETTINGS.loadTypes;
 
   // Screen access controls (admin-configurable, stored in localStorage)
   const DEFAULT_ACCESS = {
-    admin: ['dashboard', 'moves', 'trailers', 'yard', 'hostler', 'analytics', 'locations', 'settings', 'users'],
-    manager: ['dashboard', 'moves', 'trailers', 'yard', 'analytics'],
+    admin: ['dashboard', 'moves', 'trailers', 'yard', 'hostler', 'analytics', 'guard', 'locations', 'settings', 'users'],
+    manager: ['dashboard', 'moves', 'trailers', 'yard', 'analytics', 'guard'],
     warehouse: ['moves', 'trailers', 'yard'],
     hostler: ['hostler', 'yard'],
+    guard: ['guard'],
   };
   const [screenAccess, setScreenAccess] = useState(() => {
     try {
@@ -179,6 +188,7 @@ function AppShell({ currentUser, onLogout }) {
         const [u, l, t, m, s] = await Promise.all([db.fetchUsers(), db.fetchLocations(), db.fetchTrailers(), db.fetchMoves(), db.fetchSettings()]);
         setUsers(u.data || []); setLocations(l.data || []); setTrailers(t.data || []); setMoves(m.data || []);
         if (s.data) setSettings(s.data);
+        db.fetchGateLog().then(r => setGateLog(r.data || []));
       } catch (err) { console.error('Failed to load data:', err); }
       setLoading(false);
     })();
@@ -189,7 +199,8 @@ function AppShell({ currentUser, onLogout }) {
     const trailerSub = db.subscribeToTrailers(() => { db.fetchTrailers().then(r => setTrailers(r.data || [])); });
     const locSub = db.subscribeToLocations(() => { db.fetchLocations().then(r => setLocations(r.data || [])); });
     const settSub = db.subscribeToSettings(() => { db.fetchSettings().then(r => { if (r.data) setSettings(r.data); }); });
-    return () => { moveSub.unsubscribe(); trailerSub.unsubscribe(); locSub.unsubscribe(); settSub.unsubscribe(); };
+    const gateSub = db.subscribeToGateLog(() => { db.fetchGateLog().then(r => setGateLog(r.data || [])); });
+    return () => { moveSub.unsubscribe(); trailerSub.unsubscribe(); locSub.unsubscribe(); settSub.unsubscribe(); gateSub.unsubscribe(); };
   }, []);
 
   useEffect(() => { const t = setInterval(() => setClock(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -499,7 +510,7 @@ function AppShell({ currentUser, onLogout }) {
   // ─── RENDER: USERS ──────────────────────────────────────────
   const renderUsers = () => {
     const filtered = users.filter(u => !userFilter || u.name.toLowerCase().includes(userFilter.toLowerCase()) || u.username.toLowerCase().includes(userFilter.toLowerCase()));
-    const configRoles = ['manager', 'warehouse', 'hostler']; // admin always has full access
+    const configRoles = ['manager', 'warehouse', 'hostler', 'guard'];
     const configScreens = allScreens.filter(s => s.id !== 'users' && s.id !== 'locations' && s.id !== 'settings'); // admin-only screens not configurable
     return (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><Btn onClick={() => setShowAddUser(true)}>+ Add User</Btn><Input placeholder="Search..." value={userFilter} onChange={setUserFilter} style={{ width: 260 }} /><div style={{ marginLeft: 'auto', fontSize: 13, color: T.tm }}>{users.filter(u => u.active).length} active · {users.length} total</div></div>
@@ -668,6 +679,91 @@ function AppShell({ currentUser, onLogout }) {
         <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>🏷️ Site Name</h3>
         <Input label="Displayed in header and login screen" value={settings.siteName} onChange={v => saveSetting('siteName', v)} placeholder="YardFlow" />
       </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>🚚 Carriers</h3>
+        <ListEditor title="" items={CARRIERS}
+          onAdd={() => { if (newCarrier.trim() && !CARRIERS.includes(newCarrier.trim())) { saveSetting('carriers', [...CARRIERS, newCarrier.trim()]); setNewCarrier(''); } }}
+          onRemove={item => { if (confirm(`Remove "${item}" carrier?`)) saveSetting('carriers', CARRIERS.filter(c => c !== item)); }}
+          newVal={newCarrier} setNewVal={setNewCarrier} placeholder="e.g. USPS, Old Dominion..." />
+      </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>📦 Load Types</h3>
+        <ListEditor title="" items={LOAD_TYPES}
+          onAdd={() => { if (newLoadType.trim() && !LOAD_TYPES.includes(newLoadType.trim())) { saveSetting('loadTypes', [...LOAD_TYPES, newLoadType.trim()]); setNewLoadType(''); } }}
+          onRemove={item => { if (confirm(`Remove "${item}" load type?`)) saveSetting('loadTypes', LOAD_TYPES.filter(lt => lt !== item)); }}
+          newVal={newLoadType} setNewVal={setNewLoadType} placeholder="e.g. Transfer, Shuttle..." />
+      </Card>
+    </div>);
+  };
+
+  // ─── RENDER: GUARD SHACK ─────────────────────────────────────
+  const handleGateSubmit = async () => {
+    await db.createGateEntry({ ...gateEntry, logged_by: currentUser.id, logged_by_name: currentUser.name });
+    setGateEntry({ direction: 'in', load_id: '', trailer_number: '', carrier: '', load_type: '', notes: '' });
+    db.fetchGateLog().then(r => setGateLog(r.data || []));
+  };
+
+  const renderGuard = () => {
+    const filtered = gateLog.filter(g => !gateFilter || g.trailer_number.includes(gateFilter) || g.load_id.toLowerCase().includes(gateFilter.toLowerCase()) || (g.carrier || '').toLowerCase().includes(gateFilter.toLowerCase()));
+    const todayIn = gateLog.filter(g => g.direction === 'in' && new Date(g.created_at).toDateString() === new Date().toDateString()).length;
+    const todayOut = gateLog.filter(g => g.direction === 'out' && new Date(g.created_at).toDateString() === new Date().toDateString()).length;
+
+    return (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 12 }}>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase' }}>Checked In Today</div><div style={{ fontSize: 28, fontWeight: 800, color: T.ok, marginTop: 4 }}>{todayIn}</div></Card>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase' }}>Checked Out Today</div><div style={{ fontSize: 28, fontWeight: 800, color: T.in, marginTop: 4 }}>{todayOut}</div></Card>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase' }}>Total Today</div><div style={{ fontSize: 28, fontWeight: 800, color: T.ac, marginTop: 4 }}>{todayIn + todayOut}</div></Card>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase' }}>On Site</div><div style={{ fontSize: 28, fontWeight: 800, color: T.pp, marginTop: 4 }}>{trailers.length}</div></Card>
+      </div>
+
+      {/* Entry Form */}
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>🚪 New Gate Entry</h3>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          {['in', 'out'].map(d => (
+            <button key={d} onClick={() => setGateEntry(p => ({ ...p, direction: d }))}
+              style={{ flex: 1, padding: '14px 16px', borderRadius: 8, background: gateEntry.direction === d ? (d === 'in' ? T.ok : T.in) + '22' : T.sa, border: `2px solid ${gateEntry.direction === d ? (d === 'in' ? T.ok : T.in) : T.bd}`, color: gateEntry.direction === d ? (d === 'in' ? T.ok : T.in) : T.tm, cursor: 'pointer', fontFamily: 'inherit', fontSize: 16, fontWeight: 700, textAlign: 'center' }}>
+              <div style={{ fontSize: 24, marginBottom: 4 }}>{d === 'in' ? '📥' : '📤'}</div>Check {d === 'in' ? 'In' : 'Out'}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+          <Input label="Load ID" value={gateEntry.load_id} onChange={v => setGateEntry(p => ({ ...p, load_id: v }))} placeholder="e.g. LD-20241" />
+          <Input label="Trailer Number" value={gateEntry.trailer_number} onChange={v => setGateEntry(p => ({ ...p, trailer_number: v }))} placeholder="e.g. 4521" />
+          <Input label="Carrier" options={CARRIERS.map(c => ({ value: c, label: c }))} value={gateEntry.carrier} onChange={v => setGateEntry(p => ({ ...p, carrier: v }))} />
+          <Input label="Load Type" options={LOAD_TYPES.map(lt => ({ value: lt, label: lt }))} value={gateEntry.load_type} onChange={v => setGateEntry(p => ({ ...p, load_type: v }))} />
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <Input label="Notes (optional)" value={gateEntry.notes} onChange={v => setGateEntry(p => ({ ...p, notes: v }))} placeholder="Seal #, special instructions..." />
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
+          <Btn variant="secondary" onClick={() => setGateEntry({ direction: 'in', load_id: '', trailer_number: '', carrier: '', load_type: '', notes: '' })}>Clear</Btn>
+          <Btn variant={gateEntry.direction === 'in' ? 'success' : 'primary'} onClick={handleGateSubmit} disabled={!gateEntry.trailer_number || !gateEntry.carrier || !gateEntry.load_type}>
+            {gateEntry.direction === 'in' ? '📥 Check In' : '📤 Check Out'}
+          </Btn>
+        </div>
+      </Card>
+
+      {/* Log */}
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 20px', borderBottom: `1px solid ${T.bd}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Gate Log</h3>
+          <Input placeholder="Search..." value={gateFilter} onChange={setGateFilter} style={{ width: 200 }} />
+        </div>
+        <Tbl columns={[
+          { key: 'dir', label: '', render: r => <span style={{ fontSize: 18 }}>{r.direction === 'in' ? '📥' : '📤'}</span> },
+          { key: 'direction', label: 'Type', render: r => <Badge color={r.direction === 'in' ? T.ok : T.in}>{r.direction === 'in' ? 'CHECK IN' : 'CHECK OUT'}</Badge> },
+          { key: 'load_id', label: 'Load ID', render: r => <span style={{ fontWeight: 600, fontFamily: "'JetBrains Mono',monospace" }}>{r.load_id || '—'}</span> },
+          { key: 'trailer_number', label: 'Trailer #', render: r => <span style={{ fontWeight: 700, color: T.ac, fontFamily: "'JetBrains Mono',monospace" }}>{r.trailer_number}</span> },
+          { key: 'carrier', label: 'Carrier', render: r => r.carrier || '—' },
+          { key: 'load_type', label: 'Load Type', render: r => r.load_type ? <Badge color={T.pp} small>{r.load_type}</Badge> : '—' },
+          { key: 'by', label: 'Logged By', render: r => r.logged_by_name || '—' },
+          { key: 'time', label: 'Time', render: r => db.fmtDate(r.created_at) },
+        ]} data={filtered} />
+      </Card>
     </div>);
   };
 
@@ -691,6 +787,7 @@ function AppShell({ currentUser, onLogout }) {
     { id: 'yard', label: 'Yard Map', icon: '🗺️' },
     { id: 'hostler', label: 'Hostler View', icon: '👷' },
     { id: 'analytics', label: 'Analytics', icon: '📈' },
+    { id: 'guard', label: 'Guard Shack', icon: '🚪' },
     { id: 'locations', label: 'Locations', icon: '📍' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
     { id: 'users', label: 'Users', icon: '👥' },
@@ -699,7 +796,7 @@ function AppShell({ currentUser, onLogout }) {
   const nav = allScreens.filter(s => myAccess.includes(s.id));
 
   // Close sidebar on mobile when navigating
-  const navTo = (id) => { setView(id); setFilter(''); setSf(''); setHf(''); setUserFilter(''); setLocFilter(''); if (isMobile) setSidebarOpen(false); };
+  const navTo = (id) => { setView(id); setFilter(''); setSf(''); setHf(''); setUserFilter(''); setLocFilter(''); setGateFilter(''); if (isMobile) setSidebarOpen(false); };
 
   const sidebarW = sidebarOpen ? 240 : 60;
 
@@ -773,6 +870,7 @@ function AppShell({ currentUser, onLogout }) {
           {view === 'yard' && renderYard()}
           {view === 'hostler' && renderHostler()}
           {view === 'analytics' && renderAnalytics()}
+          {view === 'guard' && renderGuard()}
           {view === 'locations' && isAdmin && renderLocations()}
           {view === 'settings' && isAdmin && renderSettings()}
           {view === 'users' && isAdmin && renderUsers()}

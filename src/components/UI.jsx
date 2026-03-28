@@ -5,7 +5,7 @@ export const T = {
   ac:"#FF6B2C",ag:"rgba(255,107,44,0.15)",ok:"#22C55E",wn:"#FBBF24",dg:"#EF4444",in:"#60A5FA",pp:"#A78BFA"
 };
 
-export const ROLE_COLORS = { admin:"#EF4444", manager:"#FF6B2C", warehouse:"#60A5FA", hostler:"#22C55E" };
+export const ROLE_COLORS = { admin:"#EF4444", manager:"#FF6B2C", warehouse:"#60A5FA", hostler:"#22C55E", guard:"#FBBF24" };
 
 export const TRAILER_TYPES = ["Dry Van","Reefer","Flatbed","Tanker"];
 export const TRAILER_STATUSES = ["Empty","Loaded","Partial","Sealed","Live Load"];
@@ -13,7 +13,8 @@ export const ROLES = [
   {id:"admin",label:"Admin",desc:"Full access + user management"},
   {id:"manager",label:"Manager",desc:"Dashboard, analytics, all views"},
   {id:"warehouse",label:"Warehouse",desc:"Request moves, view trailers & yard"},
-  {id:"hostler",label:"Hostler",desc:"Claim & complete moves"}
+  {id:"hostler",label:"Hostler",desc:"Claim & complete moves"},
+  {id:"guard",label:"Guard Shack",desc:"Gate check-in & check-out"}
 ];
 
 

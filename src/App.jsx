@@ -53,8 +53,8 @@ function LoginScreen({ onLogin }) {
       <div style={{ position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)', width: 500, height: 500, borderRadius: '50%', background: `radial-gradient(circle, ${T.ac}15 0%, transparent 70%)`, filter: 'blur(60px)' }} />
       <div style={{ position: 'relative', zIndex: 1, width: 420, maxWidth: '90vw' }}>
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 16, background: `linear-gradient(135deg,${T.ac},#FF8F5C)`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, marginBottom: 16, boxShadow: `0 8px 32px ${T.ac}44` }}>🏭</div>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, letterSpacing: '-0.03em' }}>YardFlow</h1>
+          <img src="/logo.png" alt="Fayetteville Yard Flow" style={{ width: 100, height: 100, borderRadius: 16, objectFit: 'cover', marginBottom: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }} />
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900, letterSpacing: '-0.03em' }}>Fayetteville Yard Flow</h1>
           <p style={{ margin: '6px 0 0', color: T.tm, fontSize: 14 }}>Trailer & Yard Management System</p>
         </div>
         <Card style={{ padding: 32 }}>
@@ -72,6 +72,10 @@ function LoginScreen({ onLogin }) {
             <Btn onClick={handleLogin} disabled={!username || !password || loading} style={{ width: '100%', justifyContent: 'center', padding: '12px 20px', fontSize: 14, marginTop: 4 }}>{loading ? 'Signing in...' : 'Sign In →'}</Btn>
           </div>
         </Card>
+        <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11, color: T.td }}>
+          <div>Owner: <strong style={{ color: T.tm }}>Joshua Locker</strong></div>
+          <div style={{ marginTop: 4 }}>Feedback & Support: <a href="mailto:Joshua.Locker@Pepsico.com" style={{ color: T.ac, textDecoration: 'none' }}>Joshua.Locker@Pepsico.com</a></div>
+        </div>
       </div>
     </div>
   );
@@ -671,7 +675,7 @@ function AppShell({ currentUser, onLogout }) {
   return (
     <div style={{ background: T.bg, color: T.tx, minHeight: '100vh', display: 'flex' }}>
       <div style={{ width: 240, background: T.sf, borderRight: `1px solid ${T.bd}`, display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'sticky', top: 0, height: '100vh' }}>
-        <div style={{ padding: '20px 18px', borderBottom: `1px solid ${T.bd}` }}><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><div style={{ width: 36, height: 36, borderRadius: 8, background: `linear-gradient(135deg,${T.ac},#FF8F5C)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🏭</div><div><div style={{ fontWeight: 800, fontSize: 15 }}>YardFlow</div><div style={{ fontSize: 10, color: T.tm }}>Trailer Management</div></div></div></div>
+        <div style={{ padding: '20px 18px', borderBottom: `1px solid ${T.bd}` }}><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><img src="/logo.png" alt="Logo" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover' }} /><div><div style={{ fontWeight: 800, fontSize: 14 }}>Fayetteville</div><div style={{ fontSize: 10, color: T.tm }}>Yard Flow</div></div></div></div>
         <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           {nav.map(item => <button key={item.id} onClick={() => { setView(item.id); setFilter(''); setSf(''); setHf(''); setUserFilter(''); setLocFilter(''); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, background: view === item.id ? T.ag : 'transparent', border: view === item.id ? `1px solid ${T.ac}44` : '1px solid transparent', color: view === item.id ? T.ac : T.tm, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', textAlign: 'left' }}>
             <span style={{ fontSize: 16 }}>{item.icon}</span><span style={{ flex: 1 }}>{item.label}</span>

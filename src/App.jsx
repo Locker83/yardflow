@@ -48,9 +48,21 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div style={{ background: T.bg, color: T.tx, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', inset: 0, backgroundImage: `radial-gradient(circle at 1px 1px, ${T.bd} 1px, transparent 0)`, backgroundSize: '40px 40px', opacity: 0.4 }} />
-      <div style={{ position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)', width: 500, height: 500, borderRadius: '50%', background: `radial-gradient(circle, ${T.ac}15 0%, transparent 70%)`, filter: 'blur(60px)' }} />
+    <div style={{ background: '#0C1B2E', color: T.tx, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+      {/* Deep navy base with PepsiCo brand gradient sweep */}
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, #0A1628 0%, #0F2341 30%, #122A4E 50%, #0F2341 70%, #0A1628 100%)' }} />
+      {/* Subtle grid pattern */}
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0)', backgroundSize: '32px 32px' }} />
+      {/* PepsiCo blue glow - top left */}
+      <div style={{ position: 'absolute', top: '-10%', left: '-5%', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,99,178,0.15) 0%, transparent 65%)', filter: 'blur(40px)' }} />
+      {/* PepsiCo red glow - bottom right */}
+      <div style={{ position: 'absolute', bottom: '-10%', right: '-5%', width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(213,0,50,0.1) 0%, transparent 65%)', filter: 'blur(40px)' }} />
+      {/* Orange accent glow - center behind card */}
+      <div style={{ position: 'absolute', top: '30%', left: '50%', transform: 'translateX(-50%)', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,107,44,0.08) 0%, transparent 70%)', filter: 'blur(60px)' }} />
+      {/* Diagonal stripe accent */}
+      <div style={{ position: 'absolute', top: 0, right: 0, width: '40%', height: '100%', background: 'linear-gradient(160deg, transparent 40%, rgba(0,99,178,0.04) 40%, rgba(0,99,178,0.04) 42%, transparent 42%, transparent 44%, rgba(213,0,50,0.03) 44%, rgba(213,0,50,0.03) 45.5%, transparent 45.5%)', pointerEvents: 'none' }} />
+      {/* Bottom accent bar */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(90deg, #0063B2, #D50032, #FF6B2C)' }} />
       <div style={{ position: 'relative', zIndex: 1, width: 420, maxWidth: '90vw' }}>
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
           <img src="/logo.png" alt="Fayetteville Yard Flow" style={{ width: 220, height: 220, borderRadius: 20, objectFit: 'contain', marginBottom: 20 }} />

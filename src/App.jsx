@@ -53,7 +53,7 @@ function LoginScreen({ onLogin }) {
       <div style={{ position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)', width: 500, height: 500, borderRadius: '50%', background: `radial-gradient(circle, ${T.ac}15 0%, transparent 70%)`, filter: 'blur(60px)' }} />
       <div style={{ position: 'relative', zIndex: 1, width: 420, maxWidth: '90vw' }}>
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <img src="/logo.png" alt="Fayetteville Yard Flow" style={{ width: 160, height: 160, borderRadius: 20, objectFit: 'cover', marginBottom: 20, boxShadow: '0 12px 40px rgba(0,0,0,0.5)', border: `3px solid ${T.bd}` }} />
+          <img src="/logo.png" alt="Fayetteville Yard Flow" style={{ width: 220, height: 220, borderRadius: 20, objectFit: 'contain', marginBottom: 20 }} />
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900, letterSpacing: '-0.03em' }}>Fayetteville Yard Flow</h1>
           <p style={{ margin: '6px 0 0', color: T.tm, fontSize: 14 }}>Trailer & Yard Management System</p>
         </div>

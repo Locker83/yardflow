@@ -131,6 +131,8 @@ function AppShell({ currentUser, onLogout }) {
   const [sf, setSf] = useState('');
   const [hf, setHf] = useState('');
   const [clock, setClock] = useState(new Date());
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const [showAddUser, setShowAddUser] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [showPwReset, setShowPwReset] = useState(null);
@@ -191,6 +193,18 @@ function AppShell({ currentUser, onLogout }) {
   }, []);
 
   useEffect(() => { const t = setInterval(() => setClock(new Date()), 30000); return () => clearInterval(t); }, []);
+
+  // Responsive: detect mobile and auto-collapse sidebar
+  useEffect(() => {
+    const onResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setSidebarOpen(false);
+    };
+    window.addEventListener('resize', onResize);
+    onResize();
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // ─ Lookups
   const locLabel = useCallback(id => locations.find(l => l.id === id)?.label ?? (id || '—'), [locations]);
@@ -361,7 +375,7 @@ function AppShell({ currentUser, onLogout }) {
           <Card key={k.l}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}><div><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{k.l}</div><div style={{ fontSize: 28, fontWeight: 800, color: k.c, lineHeight: 1 }}>{k.v}</div>{k.s && <div style={{ fontSize: 12, color: T.td, marginTop: 4 }}>{k.s}</div>}</div><span style={{ fontSize: 24 }}>{k.i}</span></div></Card>
         ))}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
         <Card style={{ overflow: 'hidden', padding: 0 }}>
           <div style={{ padding: '16px 20px', borderBottom: `1px solid ${T.bd}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Open Move Queue</h3><Btn small onClick={() => setShowNewMove(true)}>+ New Move</Btn></div>
           <div style={{ maxHeight: 340, overflow: 'auto' }}>
@@ -489,7 +503,7 @@ function AppShell({ currentUser, onLogout }) {
     const configScreens = allScreens.filter(s => s.id !== 'users' && s.id !== 'locations' && s.id !== 'settings'); // admin-only screens not configurable
     return (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><Btn onClick={() => setShowAddUser(true)}>+ Add User</Btn><Input placeholder="Search..." value={userFilter} onChange={setUserFilter} style={{ width: 260 }} /><div style={{ marginLeft: 'auto', fontSize: 13, color: T.tm }}>{users.filter(u => u.active).length} active · {users.length} total</div></div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>{ROLES.map(r => { const count = users.filter(u => u.role === r.id && u.active).length; return (<Card key={r.id} style={{ padding: 14 }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase' }}>{r.label}s</div><div style={{ fontSize: 24, fontWeight: 800, color: ROLE_COLORS[r.id], marginTop: 4 }}>{count}</div></div><Badge color={ROLE_COLORS[r.id]}>{r.id}</Badge></div></Card>); })}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12 }}>{ROLES.map(r => { const count = users.filter(u => u.role === r.id && u.active).length; return (<Card key={r.id} style={{ padding: 14 }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase' }}>{r.label}s</div><div style={{ fontSize: 24, fontWeight: 800, color: ROLE_COLORS[r.id], marginTop: 4 }}>{count}</div></div><Badge color={ROLE_COLORS[r.id]}>{r.id}</Badge></div></Card>); })}</div>
 
       {/* Screen Access Controls */}
       <Card>
@@ -542,7 +556,7 @@ function AppShell({ currentUser, onLogout }) {
         <Input placeholder="Search locations..." value={locFilter} onChange={setLocFilter} style={{ width: 240 }} />
         <div style={{ marginLeft: 'auto', fontSize: 13, color: T.tm }}>{dockLocs.length} docks · {yardLocs.length} yard · {locations.filter(l => l.type === 'gate').length} gates</div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)', gap: 12 }}>
         {byType.map(bt => {
           const count = locations.filter(l => l.type === bt.type).length;
           const occupied = trailers.filter(t => locations.some(l => l.type === bt.type && l.id === t.location_id)).length;
@@ -620,7 +634,7 @@ function AppShell({ currentUser, onLogout }) {
 
       <Card>
         <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>📊 Performance Targets</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 14 }}>
           <div>
             <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Moves/Hour Target</label>
             <input type="number" value={settings.movesPerHourTarget} onChange={e => saveSetting('movesPerHourTarget', parseInt(e.target.value) || 0)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
@@ -684,33 +698,75 @@ function AppShell({ currentUser, onLogout }) {
   const myAccess = screenAccess[role] || DEFAULT_ACCESS[role] || [];
   const nav = allScreens.filter(s => myAccess.includes(s.id));
 
+  // Close sidebar on mobile when navigating
+  const navTo = (id) => { setView(id); setFilter(''); setSf(''); setHf(''); setUserFilter(''); setLocFilter(''); if (isMobile) setSidebarOpen(false); };
+
+  const sidebarW = sidebarOpen ? 240 : 60;
+
   return (
     <div style={{ background: T.bg, color: T.tx, minHeight: '100vh', display: 'flex' }}>
-      <div style={{ width: 240, background: T.sf, borderRight: `1px solid ${T.bd}`, display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'sticky', top: 0, height: '100vh' }}>
-        <div style={{ padding: '20px 18px', borderBottom: `1px solid ${T.bd}` }}><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><img src="/logo.png" alt="Logo" style={{ width: 42, height: 42, borderRadius: 8, objectFit: 'cover' }} /><div><div style={{ fontWeight: 800, fontSize: 14 }}>Fayetteville</div><div style={{ fontSize: 10, color: T.tm }}>Yard Flow</div></div></div></div>
-        <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {nav.map(item => <button key={item.id} onClick={() => { setView(item.id); setFilter(''); setSf(''); setHf(''); setUserFilter(''); setLocFilter(''); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, background: view === item.id ? T.ag : 'transparent', border: view === item.id ? `1px solid ${T.ac}44` : '1px solid transparent', color: view === item.id ? T.ac : T.tm, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', textAlign: 'left' }}>
-            <span style={{ fontSize: 16 }}>{item.icon}</span><span style={{ flex: 1 }}>{item.label}</span>
-            {item.count > 0 && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 10, background: T.dg, color: '#fff' }}>{item.count}</span>}
+      {/* Mobile overlay backdrop */}
+      {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 199, backdropFilter: 'blur(2px)' }} />}
+
+      {/* Sidebar */}
+      <div style={{
+        width: isMobile ? 260 : sidebarW,
+        background: T.sf,
+        borderRight: `1px solid ${T.bd}`,
+        display: 'flex', flexDirection: 'column', flexShrink: 0,
+        position: isMobile ? 'fixed' : 'sticky',
+        top: 0, height: '100vh',
+        zIndex: isMobile ? 200 : 10,
+        transform: isMobile && !sidebarOpen ? 'translateX(-100%)' : 'translateX(0)',
+        transition: 'width 0.2s ease, transform 0.25s ease',
+        overflow: 'hidden',
+      }}>
+        {/* Logo area */}
+        <div style={{ padding: sidebarOpen || isMobile ? '16px 14px' : '16px 10px', borderBottom: `1px solid ${T.bd}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 64 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+            <img src="/logo.png" alt="Logo" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+            {(sidebarOpen || isMobile) && <div><div style={{ fontWeight: 800, fontSize: 13, whiteSpace: 'nowrap' }}>Fayetteville</div><div style={{ fontSize: 10, color: T.tm, whiteSpace: 'nowrap' }}>Yard Flow</div></div>}
+          </div>
+          {!isMobile && <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: 'none', border: 'none', color: T.tm, cursor: 'pointer', fontSize: 16, padding: '4px', fontFamily: 'inherit', flexShrink: 0 }} title={sidebarOpen ? 'Collapse' : 'Expand'}>{sidebarOpen ? '◀' : '▶'}</button>}
+        </div>
+
+        {/* Nav items */}
+        <nav style={{ flex: 1, padding: sidebarOpen || isMobile ? '8px 8px' : '8px 6px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
+          {nav.map(item => <button key={item.id} onClick={() => navTo(item.id)} title={!sidebarOpen && !isMobile ? item.label : undefined} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: sidebarOpen || isMobile ? '10px 12px' : '10px 0', justifyContent: sidebarOpen || isMobile ? 'flex-start' : 'center', borderRadius: 8, background: view === item.id ? T.ag : 'transparent', border: view === item.id ? `1px solid ${T.ac}44` : '1px solid transparent', color: view === item.id ? T.ac : T.tm, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', textAlign: 'left', whiteSpace: 'nowrap', position: 'relative' }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>{item.icon}</span>
+            {(sidebarOpen || isMobile) && <span style={{ flex: 1 }}>{item.label}</span>}
+            {item.count > 0 && (sidebarOpen || isMobile) && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 10, background: T.dg, color: '#fff' }}>{item.count}</span>}
+            {item.count > 0 && !sidebarOpen && !isMobile && <span style={{ position: 'absolute', top: 4, right: 4, width: 8, height: 8, borderRadius: '50%', background: T.dg }} />}
           </button>)}
         </nav>
-        <div style={{ padding: '14px 16px', borderTop: `1px solid ${T.bd}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <Avatar name={currentUser.name} color={currentUser.color} size={32} />
-            <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentUser.name}</div><Badge color={ROLE_COLORS[currentUser.role]} small>{currentUser.role}</Badge></div>
-          </div>
-          <button onClick={onLogout} style={{ width: '100%', padding: '8px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: T.sa, color: T.tm, border: `1px solid ${T.bd}`, fontFamily: 'inherit' }}>Sign Out</button>
+
+        {/* User info */}
+        <div style={{ padding: sidebarOpen || isMobile ? '12px 14px' : '12px 6px', borderTop: `1px solid ${T.bd}` }}>
+          {(sidebarOpen || isMobile) ? <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <Avatar name={currentUser.name} color={currentUser.color} size={30} />
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentUser.name}</div><Badge color={ROLE_COLORS[currentUser.role]} small>{currentUser.role}</Badge></div>
+            </div>
+            <button onClick={onLogout} style={{ width: '100%', padding: '7px 0', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: T.sa, color: T.tm, border: `1px solid ${T.bd}`, fontFamily: 'inherit' }}>Sign Out</button>
+          </> : <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <Avatar name={currentUser.name} color={currentUser.color} size={30} />
+          </div>}
         </div>
       </div>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <header style={{ padding: '14px 24px', borderBottom: `1px solid ${T.bd}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.sf, position: 'sticky', top: 0, zIndex: 100 }}>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{nav.find(n => n.id === view)?.icon} {nav.find(n => n.id === view)?.label}</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ fontSize: 12, color: T.tm }}>{clock.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {clock.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>
-            {role !== 'hostler' && <Btn small onClick={() => setShowNewMove(true)}>+ New Move</Btn>}
+
+      {/* Main content */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, marginLeft: isMobile ? 0 : undefined }}>
+        <header style={{ padding: isMobile ? '10px 14px' : '14px 24px', borderBottom: `1px solid ${T.bd}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.sf, position: 'sticky', top: 0, zIndex: 100, gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {isMobile && <button onClick={() => setSidebarOpen(true)} style={{ background: 'none', border: 'none', color: T.tm, cursor: 'pointer', fontSize: 22, padding: '2px 6px', fontFamily: 'inherit' }}>☰</button>}
+            <h1 style={{ margin: 0, fontSize: isMobile ? 16 : 20, fontWeight: 800, whiteSpace: 'nowrap' }}>{nav.find(n => n.id === view)?.icon} {nav.find(n => n.id === view)?.label}</h1>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 16, flexShrink: 0 }}>
+            {!isMobile && <div style={{ fontSize: 12, color: T.tm }}>{clock.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {clock.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>}
+            {role !== 'hostler' && <Btn small onClick={() => setShowNewMove(true)}>+ {isMobile ? 'Move' : 'New Move'}</Btn>}
           </div>
         </header>
-        <div style={{ flex: 1, padding: 24, overflow: 'auto' }}>
+        <div style={{ flex: 1, padding: isMobile ? 14 : 24, overflow: 'auto' }}>
           {view === 'dashboard' && renderDash()}
           {view === 'moves' && renderMoves()}
           {view === 'trailers' && renderTrailers()}

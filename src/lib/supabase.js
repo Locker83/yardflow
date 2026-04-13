@@ -27,8 +27,8 @@ export async function fetchUsers() {
   const { data, error } = await supabase.from('users').select('*').order('role').order('name');
   return { data: data || [], error };
 }
-export async function createUser({ username, password, name, role, color }) {
-  const { data, error } = await supabase.from('users').insert({ username: username.toLowerCase(), password_hash: password, name, role, color, active: true }).select().single();
+export async function createUser({ username, password, name, email, role, color }) {
+  const { data, error } = await supabase.from('users').insert({ username: username.toLowerCase(), password_hash: password, name, email: email || null, role, color, active: true }).select().single();
   return { data, error };
 }
 export async function updateUser(id, updates) {
@@ -209,5 +209,83 @@ export function fmtTime(iso) {
 export function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + fmtTime(iso);
+  // Format: "Mon, Apr 14 · 2:16 PM"
+  const datePart = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return datePart + ' · ' + fmtTime(iso);
+}
+export function isToday(iso) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+
+// ─── ARCHIVE / RESET ANALYTICS ──────────────────────────────
+// Archive moves: copy all completed/cancelled moves to moves_archive table, then delete from moves
+export async function archiveCompletedMoves() {
+  const { data: completed, error: fetchErr } = await supabase.from('moves')
+    .select('*').in('status', ['completed', 'cancelled']);
+  if (fetchErr) return { error: fetchErr, archived: 0 };
+  if (!completed || completed.length === 0) return { error: null, archived: 0 };
+
+  // Insert into archive
+  const { error: insErr } = await supabase.from('moves_archive').insert(completed);
+  if (insErr) return { error: insErr, archived: 0 };
+
+  // Delete from main table
+  const ids = completed.map(m => m.id);
+  const { error: delErr } = await supabase.from('moves').delete().in('id', ids);
+  if (delErr) return { error: delErr, archived: 0 };
+  return { error: null, archived: completed.length };
+}
+
+// Permanently delete all completed/cancelled moves and gate log
+export async function deleteAnalyticsData() {
+  const { error: e1, count: c1 } = await supabase.from('moves').delete({ count: 'exact' }).in('status', ['completed', 'cancelled']);
+  if (e1) return { error: e1, deleted: 0 };
+  const { error: e2, count: c2 } = await supabase.from('gate_log').delete({ count: 'exact' }).gte('created_at', '1970-01-01');
+  if (e2) return { error: e2, deleted: c1 || 0 };
+  return { error: null, deleted: (c1 || 0) + (c2 || 0) };
+}
+
+// Restore archived moves
+export async function restoreArchivedMoves() {
+  const { data: archived, error: fetchErr } = await supabase.from('moves_archive').select('*');
+  if (fetchErr) return { error: fetchErr, restored: 0 };
+  if (!archived || archived.length === 0) return { error: null, restored: 0 };
+  const { error: insErr } = await supabase.from('moves').insert(archived);
+  if (insErr) return { error: insErr, restored: 0 };
+  const ids = archived.map(m => m.id);
+  await supabase.from('moves_archive').delete().in('id', ids);
+  return { error: null, restored: archived.length };
+}
+
+export async function fetchArchiveCount() {
+  const { count } = await supabase.from('moves_archive').select('*', { count: 'exact', head: true });
+  return count || 0;
+}
+
+// ─── PASSWORD RESET ─────────────────────────────────────────
+// Send reset email via Supabase Auth (requires user email in users table)
+export async function requestPasswordReset(email) {
+  const redirectTo = window.location.origin + '?reset=1';
+  const { data, error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  return { data, error };
+}
+
+// User sets their own password (used after clicking reset link)
+export async function updateOwnPassword(newPassword, username) {
+  // Update both Supabase Auth (if linked) and the users table
+  const { error: authErr } = await supabase.auth.updateUser({ password: newPassword });
+  // Always update the users table password_hash too (since the app authenticates against it)
+  if (username) {
+    await supabase.from('users').update({ password_hash: newPassword }).eq('username', username.toLowerCase());
+  }
+  return { error: authErr };
+}
+
+// Look up email by username (for password reset flow)
+export async function getUserEmail(username) {
+  const { data, error } = await supabase.from('users').select('email').eq('username', username.toLowerCase()).single();
+  return { email: data?.email || null, error };
 }

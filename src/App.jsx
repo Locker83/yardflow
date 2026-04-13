@@ -38,6 +38,10 @@ function LoginScreen({ onLogin }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotMsg, setForgotMsg] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   const handleLogin = async () => {
     setLoading(true);
@@ -45,6 +49,16 @@ function LoginScreen({ onLogin }) {
     setLoading(false);
     if (err) { setError(err); return; }
     onLogin(user);
+  };
+
+  const handleForgot = async () => {
+    if (!forgotEmail.trim()) return;
+    setForgotLoading(true);
+    setForgotMsg('');
+    const { error } = await db.requestPasswordReset(forgotEmail.trim());
+    setForgotLoading(false);
+    if (error) { setForgotMsg('⚠️ ' + error.message); }
+    else { setForgotMsg('✅ Reset link sent! Check your email (including spam folder).'); }
   };
 
   return (
@@ -82,12 +96,71 @@ function LoginScreen({ onLogin }) {
               <button onClick={() => setShowPw(!showPw)} style={{ position: 'absolute', right: 10, bottom: 8, background: 'none', border: 'none', color: T.tm, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>{showPw ? 'Hide' : 'Show'}</button>
             </div>
             <Btn onClick={handleLogin} disabled={!username || !password || loading} style={{ width: '100%', justifyContent: 'center', padding: '12px 20px', fontSize: 14, marginTop: 4 }}>{loading ? 'Signing in...' : 'Sign In →'}</Btn>
+            <button onClick={() => { setShowForgot(true); setForgotEmail(''); setForgotMsg(''); }} style={{ background: 'none', border: 'none', color: T.tm, cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', marginTop: 6, textAlign: 'center', textDecoration: 'underline' }}>Forgot password?</button>
           </div>
         </Card>
         <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11, color: T.td }}>
           <div>Owner: <strong style={{ color: T.tm }}>Joshua Locker</strong></div>
           <div style={{ marginTop: 4 }}>Feedback & Support: <a href="mailto:Joshua.Locker@Pepsico.com" style={{ color: T.ac, textDecoration: 'none' }}>Joshua.Locker@Pepsico.com</a></div>
         </div>
+      </div>
+      <Modal open={showForgot} onClose={() => setShowForgot(false)} title="🔑 Reset Password" width={440}>
+        <p style={{ margin: '0 0 16px', fontSize: 13, color: T.tm }}>Enter the email associated with your account. We'll send you a link to reset your password.</p>
+        <Input label="Email Address" type="email" value={forgotEmail} onChange={setForgotEmail} placeholder="your.email@pepsico.com" onKeyDown={e => e.key === 'Enter' && handleForgot()} />
+        {forgotMsg && <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, fontSize: 13, background: forgotMsg.startsWith('✅') ? T.ok + '18' : T.dg + '18', border: `1px solid ${forgotMsg.startsWith('✅') ? T.ok : T.dg}44`, color: forgotMsg.startsWith('✅') ? T.ok : T.dg }}>{forgotMsg}</div>}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
+          <Btn variant="secondary" onClick={() => setShowForgot(false)}>Cancel</Btn>
+          <Btn onClick={handleForgot} disabled={!forgotEmail.trim() || forgotLoading}>{forgotLoading ? 'Sending...' : 'Send Reset Link'}</Btn>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── PASSWORD RESET SCREEN ──────────────────────────────────
+function ResetPasswordScreen({ onDone }) {
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [msg, setMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleReset = async () => {
+    if (pw.length < 6) { setMsg('⚠️ Password must be at least 6 characters'); return; }
+    if (pw !== pw2) { setMsg('⚠️ Passwords do not match'); return; }
+    setLoading(true);
+    // Get user info from Supabase Auth (set when they clicked the reset link)
+    const { data: { user: authUser } } = await db.supabase.auth.getUser();
+    const email = authUser?.email;
+    let username = null;
+    if (email) {
+      const { data } = await db.supabase.from('users').select('username').eq('email', email).single();
+      username = data?.username;
+    }
+    const { error } = await db.updateOwnPassword(pw, username);
+    setLoading(false);
+    if (error) { setMsg('⚠️ ' + error.message); return; }
+    setMsg('✅ Password updated! Redirecting to login...');
+    setTimeout(() => { window.history.replaceState({}, '', window.location.pathname); onDone(); }, 1500);
+  };
+
+  return (
+    <div style={{ background: '#0C1B2E', color: T.tx, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, #0A1628 0%, #0F2341 30%, #122A4E 50%, #0F2341 70%, #0A1628 100%)' }} />
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(90deg, #0063B2, #D50032, #FF6B2C)' }} />
+      <div style={{ position: 'relative', zIndex: 1, width: 420, maxWidth: '90vw' }}>
+        <div style={{ textAlign: 'center', marginBottom: 30 }}>
+          <img src="/logo.png" alt="Logo" style={{ width: 140, height: 140, borderRadius: 16, objectFit: 'contain', marginBottom: 12 }} />
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>Set Your Password</h1>
+        </div>
+        <Card style={{ padding: 28 }}>
+          <p style={{ margin: '0 0 16px', fontSize: 13, color: T.tm }}>Choose a new password for your Yard Flow account.</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Input label="New Password" type="password" value={pw} onChange={setPw} placeholder="At least 6 characters" />
+            <Input label="Confirm Password" type="password" value={pw2} onChange={setPw2} placeholder="Re-enter password" onKeyDown={e => e.key === 'Enter' && handleReset()} />
+            {msg && <div style={{ padding: '10px 14px', borderRadius: 8, fontSize: 13, background: msg.startsWith('✅') ? T.ok + '18' : T.dg + '18', border: `1px solid ${msg.startsWith('✅') ? T.ok : T.dg}44`, color: msg.startsWith('✅') ? T.ok : T.dg }}>{msg}</div>}
+            <Btn onClick={handleReset} disabled={!pw || !pw2 || loading} style={{ width: '100%', justifyContent: 'center', padding: '12px 20px', fontSize: 14, marginTop: 4 }}>{loading ? 'Updating...' : 'Update Password'}</Btn>
+          </div>
+        </Card>
       </div>
     </div>
   );
@@ -104,10 +177,25 @@ export default function App() {
       return u;
     } catch { sessionStorage.removeItem('yf_user'); return null; }
   });
+  const [resetMode, setResetMode] = useState(() => {
+    // Detect Supabase password recovery link
+    const hash = window.location.hash;
+    const search = window.location.search;
+    return hash.includes('type=recovery') || hash.includes('access_token') || search.includes('reset=1');
+  });
+
+  useEffect(() => {
+    // Listen for Supabase auth events (PASSWORD_RECOVERY)
+    const { data: { subscription } } = db.supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setResetMode(true);
+    });
+    return () => subscription?.unsubscribe();
+  }, []);
 
   const handleLogin = (user) => { setCurrentUser(user); sessionStorage.setItem('yf_user', JSON.stringify(user)); };
   const handleLogout = () => { setCurrentUser(null); sessionStorage.removeItem('yf_user'); };
 
+  if (resetMode) return <ResetPasswordScreen onDone={() => { setResetMode(false); db.supabase.auth.signOut(); }} />;
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
   return <ErrorBoundary><AppShell currentUser={currentUser} onLogout={handleLogout} /></ErrorBoundary>;
 }
@@ -143,7 +231,7 @@ function AppShell({ currentUser, onLogout }) {
   // Move form: type is 'to-dock' or 'from-dock'
   const [nm, setNm] = useState({ type: 'to-dock', dock: '', trailerType: '', priority: 'normal', notes: '' });
   const [nt, setNt] = useState({ number: '', type: 'Dry Van', status: 'Empty', location: '', carrier: '', notes: '' });
-  const [newUser, setNewUser] = useState({ username: '', password: '', name: '', role: 'hostler', color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0') });
+  const [newUser, setNewUser] = useState({ username: '', password: '', name: '', email: '', role: 'hostler', color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0') });
   const [newLoc, setNewLoc] = useState({ id: '', label: '', type: 'dock', zone: '' });
   // Hostler completion/cancel modals
   const [completeModal, setCompleteModal] = useState(null); // move being completed
@@ -159,6 +247,9 @@ function AppShell({ currentUser, onLogout }) {
   const [gateLog, setGateLog] = useState([]);
   const [gateEntry, setGateEntry] = useState({ direction: 'in', load_id: '', trailer_number: '', carrier: '', load_type: '', notes: '' });
   const [gateFilter, setGateFilter] = useState('');
+  const [archiveCount, setArchiveCount] = useState(0);
+  // Password reset
+  const [showForgot, setShowForgot] = useState(false);
 
   // Derived from settings
   const TRAILER_TYPES = settings.trailerTypes || db.DEFAULT_SETTINGS.trailerTypes;
@@ -189,6 +280,7 @@ function AppShell({ currentUser, onLogout }) {
         setUsers(u.data || []); setLocations(l.data || []); setTrailers(t.data || []); setMoves(m.data || []);
         if (s.data) setSettings(s.data);
         db.fetchGateLog().then(r => setGateLog(r.data || []));
+        db.fetchArchiveCount().then(setArchiveCount);
       } catch (err) { console.error('Failed to load data:', err); }
       setLoading(false);
     })();
@@ -231,6 +323,7 @@ function AppShell({ currentUser, onLogout }) {
   const pending = useMemo(() => moves.filter(m => m.status === 'pending'), [moves]);
   const inProg = useMemo(() => moves.filter(m => m.status === 'in-progress'), [moves]);
   const completed = useMemo(() => moves.filter(m => m.status === 'completed'), [moves]);
+  const completedToday = useMemo(() => moves.filter(m => m.status === 'completed' && db.isToday(m.completed_at)), [moves]);
   const dkO = useMemo(() => { const o = dockLocs.filter(d => trailers.some(t => t.location_id === d.id)).length; return { o, t: dockLocs.length, p: dockLocs.length ? Math.round(o / dockLocs.length * 100) : 0 }; }, [trailers, dockLocs]);
   const ydO = useMemo(() => { const o = yardLocs.filter(y => trailers.some(t => t.location_id === y.id)).length; return { o, t: yardLocs.length, p: yardLocs.length ? Math.round(o / yardLocs.length * 100) : 0 }; }, [trailers, yardLocs]);
 
@@ -340,12 +433,12 @@ function AppShell({ currentUser, onLogout }) {
   const handleAddUser = async () => {
     const { error } = await db.createUser(newUser);
     if (error) { alert('Error: ' + error.message); return; }
-    setShowAddUser(false); setNewUser({ username: '', password: '', name: '', role: 'hostler', color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0') });
+    setShowAddUser(false); setNewUser({ username: '', password: '', name: '', email: '', role: 'hostler', color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0') });
     db.fetchUsers().then(r => setUsers(r.data));
   };
   const handleEditUser = async () => {
     if (!editUser) return;
-    await db.updateUser(editUser.id, { name: editUser.name, username: editUser.username, role: editUser.role, color: editUser.color });
+    await db.updateUser(editUser.id, { name: editUser.name, username: editUser.username, email: editUser.email, role: editUser.role, color: editUser.color });
     setEditUser(null); db.fetchUsers().then(r => setUsers(r.data));
   };
   const handleToggleUser = async (id, active) => { await db.toggleUserActive(id, !active); db.fetchUsers().then(r => setUsers(r.data)); };
@@ -382,7 +475,7 @@ function AppShell({ currentUser, onLogout }) {
   const renderDash = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 14 }}>
-        {[{ l: 'Pending Moves', v: pending.length, c: T.wn, i: '⏳' }, { l: 'In Progress', v: inProg.length, c: T.in, i: '🔄' }, { l: 'Completed Today', v: completed.length, c: T.ok, i: '✅' }, { l: 'Dock Usage', v: `${dkO.p}%`, s: `${dkO.o}/${dkO.t}`, c: T.ac, i: '🏗️' }, { l: 'Yard Usage', v: `${ydO.p}%`, s: `${ydO.o}/${ydO.t}`, c: T.pp, i: '📦' }, { l: 'Trailers on Site', v: trailers.length, c: T.in, i: '🚛' }].map(k => (
+        {[{ l: 'Pending Moves', v: pending.length, c: T.wn, i: '⏳' }, { l: 'In Progress', v: inProg.length, c: T.in, i: '🔄' }, { l: 'Completed Today', v: completedToday.length, c: T.ok, i: '✅' }, { l: 'Dock Usage', v: `${dkO.p}%`, s: `${dkO.o}/${dkO.t}`, c: T.ac, i: '🏗️' }, { l: 'Yard Usage', v: `${ydO.p}%`, s: `${ydO.o}/${ydO.t}`, c: T.pp, i: '📦' }, { l: 'Trailers on Site', v: trailers.length, c: T.in, i: '🚛' }].map(k => (
           <Card key={k.l}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}><div><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{k.l}</div><div style={{ fontSize: 28, fontWeight: 800, color: k.c, lineHeight: 1 }}>{k.v}</div>{k.s && <div style={{ fontSize: 12, color: T.td, marginTop: 4 }}>{k.s}</div>}</div><span style={{ fontSize: 24 }}>{k.i}</span></div></Card>
         ))}
       </div>
@@ -694,6 +787,35 @@ function AppShell({ currentUser, onLogout }) {
           onAdd={() => { if (newLoadType.trim() && !LOAD_TYPES.includes(newLoadType.trim())) { saveSetting('loadTypes', [...LOAD_TYPES, newLoadType.trim()]); setNewLoadType(''); } }}
           onRemove={item => { if (confirm(`Remove "${item}" load type?`)) saveSetting('loadTypes', LOAD_TYPES.filter(lt => lt !== item)); }}
           newVal={newLoadType} setNewVal={setNewLoadType} placeholder="e.g. Transfer, Shuttle..." />
+      </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700 }}>🗄️ Reset Analytics Data</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 12, color: T.tm }}>Clear completed/cancelled moves and gate log entries. Active (pending/in-progress) moves are NOT affected. Trailer inventory, locations, users, and settings are NOT affected.</p>
+        {archiveCount > 0 && <div style={{ padding: 12, background: T.in + '15', border: `1px solid ${T.in}33`, borderRadius: 8, marginBottom: 14, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span><strong style={{ color: T.in }}>{archiveCount}</strong> moves currently archived</span>
+          <Btn small variant="ghost" onClick={async () => {
+            if (!confirm(`Restore all ${archiveCount} archived moves back to the active log?`)) return;
+            const r = await db.restoreArchivedMoves();
+            if (r.error) alert('Error: ' + r.error.message);
+            else { alert(`Restored ${r.restored} moves`); db.fetchArchiveCount().then(setArchiveCount); db.fetchMoves().then(x => setMoves(x.data || [])); }
+          }}>Restore Archive</Btn>
+        </div>}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Btn variant="secondary" onClick={async () => {
+            if (!confirm('Archive all completed and cancelled moves?\n\nThis moves them to a backup table. They will no longer appear in dashboards or analytics, but can be restored later.')) return;
+            const r = await db.archiveCompletedMoves();
+            if (r.error) alert('Error: ' + r.error.message);
+            else { alert(`Archived ${r.archived} moves`); db.fetchArchiveCount().then(setArchiveCount); db.fetchMoves().then(x => setMoves(x.data || [])); }
+          }}>📦 Archive Completed Moves</Btn>
+          <Btn variant="danger" onClick={async () => {
+            if (!confirm('⚠️ PERMANENT DELETE ⚠️\n\nThis will permanently delete:\n• All completed/cancelled moves\n• All gate log entries\n\nThis CANNOT be undone. Continue?')) return;
+            if (!confirm('Are you absolutely sure? This is your last chance to cancel.')) return;
+            const r = await db.deleteAnalyticsData();
+            if (r.error) alert('Error: ' + r.error.message);
+            else { alert(`Permanently deleted ${r.deleted} records`); db.fetchMoves().then(x => setMoves(x.data || [])); db.fetchGateLog().then(x => setGateLog(x.data || [])); }
+          }}>🗑️ Permanently Delete</Btn>
+        </div>
       </Card>
     </div>);
   };
@@ -1009,6 +1131,7 @@ function AppShell({ currentUser, onLogout }) {
       <Modal open={showAddUser} onClose={() => setShowAddUser(false)} title="Add New User">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><Input label="Full Name" value={newUser.name} onChange={v => setNewUser(p => ({ ...p, name: v }))} placeholder="John Smith" /><Input label="Username" value={newUser.username} onChange={v => setNewUser(p => ({ ...p, username: v }))} placeholder="john.s" /></div>
+          <Input label="Email (for password reset)" type="email" value={newUser.email} onChange={v => setNewUser(p => ({ ...p, email: v }))} placeholder="john.smith@pepsico.com" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><Input label="Password" value={newUser.password} onChange={v => setNewUser(p => ({ ...p, password: v }))} /><Input label="Role" options={ROLES.map(r => ({ value: r.id, label: r.label }))} value={newUser.role} onChange={v => setNewUser(p => ({ ...p, role: v }))} /></div>
           <div><label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Color</label><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="color" value={newUser.color} onChange={e => setNewUser(p => ({ ...p, color: e.target.value }))} style={{ width: 40, height: 32, border: 'none', borderRadius: 6, cursor: 'pointer' }} /><Avatar name={newUser.name || '?'} color={newUser.color} size={32} /></div></div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}><Btn variant="secondary" onClick={() => setShowAddUser(false)}>Cancel</Btn><Btn onClick={handleAddUser} disabled={!newUser.name || !newUser.username || !newUser.password || !newUser.role}>Create User</Btn></div>
@@ -1019,6 +1142,7 @@ function AppShell({ currentUser, onLogout }) {
         {editUser && <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Input label="Name" value={editUser.name} onChange={v => setEditUser(p => ({ ...p, name: v }))} />
           <Input label="Username" value={editUser.username} onChange={v => setEditUser(p => ({ ...p, username: v }))} />
+          <Input label="Email" type="email" value={editUser.email || ''} onChange={v => setEditUser(p => ({ ...p, email: v }))} placeholder="user@pepsico.com" />
           <Input label="Role" options={ROLES.map(r => ({ value: r.id, label: r.label }))} value={editUser.role} onChange={v => setEditUser(p => ({ ...p, role: v }))} />
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}><Btn variant="secondary" onClick={() => setEditUser(null)}>Cancel</Btn><Btn onClick={handleEditUser}>Save</Btn></div>
         </div>}

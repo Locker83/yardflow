@@ -37,6 +37,28 @@ const FACILITY_LONG_HOLDS = [[78,3,5,"HOLD5","HOLD 5"],[83,3,4,"HOLD4","HOLD 4"]
 const FACILITY_BUILDINGS = [[5,13,17,95,"PLANT BUILDING"],[55,30,6,14,""],[22,1,4,3,"DRIVERS LOUNGE"],[42,9,4,4,"OFFICES /\nCONFERENCE"],[102,11,4,3,"GUARD SHACK"],[86,47,7,14,"TRAFFIC CENTER"],[88,48,5,4,"FUEL ISLAND"],[79,55,3,5,"EQUIP SHED"],[78,66,3,5,"EQUIPMENT &\nSTORAGE"]];
 const FACILITY_ZONES = [[34,1,7,14,"LIVE LOAD PARKING"],[48,1,7,25,"ZONE PARKING"],[73,1,9,28,"HOLD PARKING"]];
 
+// Module-level ListEditor — defined here so it's stable across App renders
+// (defining inside App caused inputs to lose focus on every keystroke)
+function ListEditor({ title, items, onAdd, onRemove, newVal, setNewVal, placeholder }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.tx, marginBottom: 10 }}>{title}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+        {items.map(item => (
+          <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: T.sa, border: `1px solid ${T.bd}`, borderRadius: 6, fontSize: 13 }}>
+            <span>{item}</span>
+            <button onClick={() => onRemove(item)} style={{ background: 'none', border: 'none', color: T.dg, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit', padding: 0, lineHeight: 1 }}>✕</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input value={newVal} onChange={e => setNewVal(e.target.value)} placeholder={placeholder} onKeyDown={e => { if (e.key === 'Enter' && newVal.trim()) { onAdd(); } }} style={{ flex: 1, padding: '8px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+        <Btn small onClick={onAdd} disabled={!newVal.trim()}>+ Add</Btn>
+      </div>
+    </div>
+  );
+}
+
 // ─── LOGIN ──────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState('');
@@ -812,25 +834,8 @@ function AppShell({ currentUser, onLogout }) {
     setSettings(updated);
     await db.updateSettings(updated);
   };
-  // ListEditor must be defined OUTSIDE renderSettings to prevent re-mounting on every render
-  // (re-mounting destroys input state and breaks the Add button)
-  const ListEditor = useCallback(({ title, items, onAdd, onRemove, newVal, setNewVal, placeholder }) => (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: T.tx, marginBottom: 10 }}>{title}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-        {items.map(item => (
-          <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: T.sa, border: `1px solid ${T.bd}`, borderRadius: 6, fontSize: 13 }}>
-            <span>{item}</span>
-            <button onClick={() => onRemove(item)} style={{ background: 'none', border: 'none', color: T.dg, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit', padding: 0, lineHeight: 1 }}>✕</button>
-          </div>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <input value={newVal} onChange={e => setNewVal(e.target.value)} placeholder={placeholder} onKeyDown={e => { if (e.key === 'Enter' && newVal.trim()) { onAdd(); } }} style={{ flex: 1, padding: '8px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
-        <Btn small onClick={onAdd} disabled={!newVal.trim()}>+ Add</Btn>
-      </div>
-    </div>
-  ), []);
+  // ListEditor is defined at module level (below the App function) to prevent
+  // re-mounting on every render, which destroys input state and breaks the Add button.
 
   const renderSettings = () => {
     return (<div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

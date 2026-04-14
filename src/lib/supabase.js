@@ -7,7 +7,21 @@ if (!supabaseUrl || !supabaseKey) {
   console.error('Missing Supabase environment variables! Check your .env file.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Only enable Supabase Auth session handling when URL actually contains a reset token.
+// This prevents background auth network requests that can hang on restricted networks.
+const isResetUrl = typeof window !== 'undefined' && (
+  (window.location.hash || '').includes('type=recovery') ||
+  (window.location.hash || '').includes('access_token') ||
+  (window.location.search || '').includes('reset=1')
+);
+
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    autoRefreshToken: isResetUrl,
+    persistSession: isResetUrl,
+    detectSessionInUrl: isResetUrl,
+  },
+});
 
 // ─── AUTH ────────────────────────────────────────────────────
 export async function loginUser(username, password) {

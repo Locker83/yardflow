@@ -206,24 +206,16 @@ export default function App() {
     } catch { sessionStorage.removeItem('yf_user'); return null; }
   });
   const [resetMode, setResetMode] = useState(() => {
-    // Detect Supabase password recovery link
-    const hash = window.location.hash;
-    const search = window.location.search;
+    // Detect Supabase password recovery link (one-time check, no persistent listener)
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
     return hash.includes('type=recovery') || hash.includes('access_token') || search.includes('reset=1');
   });
-
-  useEffect(() => {
-    // Listen for Supabase auth events (PASSWORD_RECOVERY)
-    const { data: { subscription } } = db.supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setResetMode(true);
-    });
-    return () => subscription?.unsubscribe();
-  }, []);
 
   const handleLogin = (user) => { setCurrentUser(user); sessionStorage.setItem('yf_user', JSON.stringify(user)); };
   const handleLogout = () => { setCurrentUser(null); sessionStorage.removeItem('yf_user'); };
 
-  if (resetMode) return <ResetPasswordScreen onDone={() => { setResetMode(false); db.supabase.auth.signOut(); }} />;
+  if (resetMode) return <ResetPasswordScreen onDone={() => { setResetMode(false); try { db.supabase.auth.signOut(); } catch {} window.history.replaceState({}, '', window.location.pathname); }} />;
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
   return <ErrorBoundary><AppShell currentUser={currentUser} onLogout={handleLogout} /></ErrorBoundary>;
 }

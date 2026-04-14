@@ -354,6 +354,14 @@ function AppShell({ currentUser, onLogout }) {
 
   // ─ Actions: Create Move (new flow)
   const handleCreateMove = async () => {
+    // Block moves to/from out-of-service locations
+    if (nm.dock) {
+      const dockLoc = locations.find(l => l.id === nm.dock);
+      if (dockLoc && dockLoc.active === false) {
+        alert(`⛔ Cannot create move — ${dockLoc.label} is currently OUT OF SERVICE${dockLoc.inactive_reason ? ' (' + dockLoc.inactive_reason + ')' : ''}.`);
+        return;
+      }
+    }
     const moveData = {
       type: nm.type,
       trailer_number: '', // hostler fills this in
@@ -376,6 +384,15 @@ function AppShell({ currentUser, onLogout }) {
   const handleCompleteMove = async () => {
     if (!completeModal) return;
     const m = completeModal;
+    // Block completing to an out-of-service location
+    const targetSpot = cmFields.yardSpot || cmFields.fromSpot;
+    if (targetSpot) {
+      const loc = locations.find(l => l.id === targetSpot);
+      if (loc && loc.active === false) {
+        alert(`⛔ Cannot complete move — ${loc.label} is OUT OF SERVICE${loc.inactive_reason ? ' (' + loc.inactive_reason + ')' : ''}. Choose a different spot.`);
+        return;
+      }
+    }
     const updates = {};
     if (m.type === 'to-dock') {
       // Hostler fills: which trailer they brought + where they pulled it from (yard spot)
@@ -548,8 +565,19 @@ function AppShell({ currentUser, onLogout }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><Btn onClick={() => setShowNewTrailer(true)}>+ Register Trailer</Btn><Input placeholder="Search..." value={filter} onChange={setFilter} style={{ width: 260 }} /></div>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <Tbl columns={[{ key: 'n', label: 'Trailer #', render: r => <TTag number={r.number} type={r.type} /> }, { key: 't', label: 'Type', render: r => <span style={{ fontWeight: 600 }}>{r.type}</span> }, { key: 'c', label: 'Carrier' }, { key: 's', label: 'Status', render: r => { const c = { Empty: T.td, Loaded: T.ok, Partial: T.wn, Sealed: T.pp, 'Live Load': T.in }[r.status] ?? T.tm; return <Badge color={c}>{r.status}</Badge>; } }, { key: 'l', label: 'Location', render: r => <span style={{ fontWeight: 600 }}>{locLabel(r.location_id)}</span> }, { key: 'lm', label: 'Last Moved', render: r => db.fmtDate(r.last_moved) }, { key: 'e', label: '', render: r => <Btn small variant="ghost" onClick={e => { e.stopPropagation(); setEditTrailer({ ...r }); }}>✏️ Edit</Btn> }]}
-          data={trailers.filter(t => !filter || t.number.includes(filter) || (t.carrier || '').toLowerCase().includes(filter.toLowerCase()) || t.type.toLowerCase().includes(filter.toLowerCase()))} />
+        <Tbl columns={[
+          { key: 'n', label: 'Trailer #', render: r => <span style={{ opacity: r.active === false ? 0.5 : 1 }}><TTag number={r.number} type={r.type} /></span> },
+          { key: 't', label: 'Type', render: r => <span style={{ fontWeight: 600, opacity: r.active === false ? 0.5 : 1 }}>{r.type}</span> },
+          { key: 'c', label: 'Carrier' },
+          { key: 's', label: 'Status', render: r => { const c = { Empty: T.td, Loaded: T.ok, Partial: T.wn, Sealed: T.pp, 'Live Load': T.in }[r.status] ?? T.tm; return <Badge color={c}>{r.status}</Badge>; } },
+          { key: 'svc', label: 'Service', render: r => r.active === false ? <Badge color={T.dg}>⛔ OOS</Badge> : <Badge color={T.ok} small>In Service</Badge> },
+          { key: 'l', label: 'Location', render: r => <span style={{ fontWeight: 600 }}>{locLabel(r.location_id)}</span> },
+          { key: 'lm', label: 'Last Moved', render: r => db.fmtDate(r.last_moved) },
+          { key: 'e', label: '', render: r => (<div style={{ display: 'flex', gap: 6 }}>
+            <Btn small variant="ghost" onClick={async e => { e.stopPropagation(); const currentlyActive = r.active !== false; let reason = null; if (currentlyActive) { reason = prompt('Reason for taking trailer out of service (optional):', ''); if (reason === null) return; } const { data, error } = await db.toggleTrailerActive(r.id, !currentlyActive, reason); if (error) { alert('Error: ' + error.message); return; } setTrailers(prev => prev.map(t => t.id === r.id ? data : t)); }} title={r.active === false ? 'Return to service' : 'Take out of service'}>{r.active === false ? '✓' : '⛔'}</Btn>
+            <Btn small variant="ghost" onClick={e => { e.stopPropagation(); setEditTrailer({ ...r }); }}>✏️</Btn>
+          </div>) }
+        ]} data={trailers.filter(t => !filter || t.number.includes(filter) || (t.carrier || '').toLowerCase().includes(filter.toLowerCase()) || t.type.toLowerCase().includes(filter.toLowerCase()))} />
       </Card>
     </div>
   );
@@ -617,22 +645,27 @@ function AppShell({ currentUser, onLogout }) {
 
             {FACILITY_LONG_HOLDS.map(([r, c, h, id, label]) => {
               const tr = at(id);
+              const loc = locations.find(l => l.id === id);
+              const isOOS = loc && loc.active === false;
               const color = tr ? OCCUPIED : EMPTY;
               const bg = tr ? OCCUPIED + '44' : EMPTY + '22';
               return (
-                <div key={id} onClick={() => handleSpotClick(id)} title={label + (tr ? ': ' + tr.number : ': Empty')} style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: CELL_W * 2 - 2, height: h * CELL_H - 2, background: bg, border: `2px solid ${color}`, borderRadius: 4, color, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', lineHeight: 1.2 }}>
+                <div key={id} onClick={() => handleSpotClick(id)} title={label + (isOOS ? ' (OUT OF SERVICE)' : '') + (tr ? ': ' + tr.number : ': Empty')} style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: CELL_W * 2 - 2, height: h * CELL_H - 2, background: bg, border: `2px solid ${color}`, borderRadius: 4, color, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', lineHeight: 1.2, opacity: isOOS ? 0.35 : 1 }}>
                   <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 12, opacity: 0.8, fontWeight: 700 }}>{label}</div>
                   {tr && <div style={{ marginTop: 6, fontWeight: 800, fontSize: 14 }}>{tr.number}</div>}
+                  {isOOS && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.dg, fontSize: 28, fontWeight: 900, pointerEvents: 'none', textShadow: '0 0 5px rgba(0,0,0,0.8)' }}>✕</div>}
                 </div>
               );
             })}
 
             {FACILITY_SPOTS.map(([r, c, id, label]) => {
               const tr = at(id);
+              const loc = locations.find(l => l.id === id);
+              const isOOS = loc && loc.active === false;
               const color = tr ? OCCUPIED : EMPTY;
               const bg = tr ? OCCUPIED + '44' : EMPTY + '22';
               return (
-                <div key={id} onClick={() => handleSpotClick(id)} title={label + (tr ? ': ' + tr.number : ': Empty')} style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: CELL_W - 3, height: CELL_H - 2, background: bg, border: `1.5px solid ${color}`, borderRadius: 3, color, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', lineHeight: 1.1 }}>
+                <div key={id} onClick={() => handleSpotClick(id)} title={label + (isOOS ? ' (OUT OF SERVICE)' : '') + (tr ? ': ' + tr.number : ': Empty')} style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: CELL_W - 3, height: CELL_H - 2, background: bg, border: `1.5px solid ${color}`, borderRadius: 3, color, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', lineHeight: 1.1, opacity: isOOS ? 0.35 : 1 }}>
                   {tr ? (
                     <Fragment>
                       <div style={{ fontSize: 9, opacity: 0.8 }}>{label}</div>
@@ -641,6 +674,7 @@ function AppShell({ currentUser, onLogout }) {
                   ) : (
                     <div style={{ fontSize: 11 }}>{label}</div>
                   )}
+                  {isOOS && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.dg, fontSize: 18, fontWeight: 900, pointerEvents: 'none', textShadow: '0 0 3px rgba(0,0,0,0.8)' }}>✕</div>}
                 </div>
               );
             })}
@@ -653,6 +687,12 @@ function AppShell({ currentUser, onLogout }) {
               <div style={{ fontSize: 11, color: T.tm, textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Type</div>
               <Badge color={selectedYardLoc.loc.type === 'dock' ? T.ac : selectedYardLoc.loc.type === 'gate' ? T.wn : T.in}>{selectedYardLoc.loc.type}</Badge>
             </div>
+            {selectedYardLoc.loc.active === false && (
+              <div style={{ padding: 12, background: T.dg + '15', border: `1px solid ${T.dg}55`, borderRadius: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.dg, marginBottom: 4 }}>⛔ OUT OF SERVICE</div>
+                {selectedYardLoc.loc.inactive_reason && <div style={{ fontSize: 12, color: T.tm }}>Reason: {selectedYardLoc.loc.inactive_reason}</div>}
+              </div>
+            )}
             {selectedYardLoc.trailer ? (
               <div style={{ padding: 14, background: OCCUPIED + '15', border: `1px solid ${OCCUPIED}44`, borderRadius: 8 }}>
                 <div style={{ fontSize: 11, color: T.tm, textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>Trailer Currently Here</div>
@@ -669,6 +709,23 @@ function AppShell({ currentUser, onLogout }) {
               <div style={{ padding: 20, background: EMPTY + '15', border: `1px solid ${EMPTY}44`, borderRadius: 8, textAlign: 'center' }}>
                 <div style={{ fontSize: 28, marginBottom: 6 }}>✓</div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: EMPTY }}>Empty / Available</div>
+              </div>
+            )}
+            {isAdmin && (
+              <div style={{ padding: 12, background: T.sa, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 12, color: T.tm }}>Admin: toggle service status</div>
+                <Btn small variant={selectedYardLoc.loc.active === false ? 'success' : 'danger'} onClick={async () => {
+                  const currentlyActive = selectedYardLoc.loc.active !== false;
+                  let reason = null;
+                  if (currentlyActive) {
+                    reason = prompt('Reason for taking out of service (optional):', '');
+                    if (reason === null) return; // cancelled
+                  }
+                  const { data, error } = await db.toggleLocationActive(selectedYardLoc.loc.id, !currentlyActive, reason);
+                  if (error) { alert('Error: ' + error.message); return; }
+                  setLocations(prev => prev.map(l => l.id === selectedYardLoc.loc.id ? data : l));
+                  setSelectedYardLoc({ ...selectedYardLoc, loc: data });
+                }}>{selectedYardLoc.loc.active === false ? '✓ Return to Service' : '⛔ Take Out of Service'}</Btn>
               </div>
             )}
           </div>}
@@ -805,12 +862,14 @@ function AppShell({ currentUser, onLogout }) {
             <Btn small onClick={() => { setNewLoc({ id: autoLocId(bt.type), label: '', type: bt.type, zone: bt.type === 'dock' ? 'Shipping' : '' }); setShowAddLoc(true); }}>+ Add</Btn>
           </div>
           <Tbl columns={[
-            { key: 'id', label: 'ID', render: r => <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: LOC_COLORS[r.type] }}>{r.id}</span> },
-            { key: 'label', label: 'Name', render: r => <span style={{ fontWeight: 600 }}>{r.label}</span> },
+            { key: 'id', label: 'ID', render: r => <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: LOC_COLORS[r.type], opacity: r.active === false ? 0.5 : 1 }}>{r.id}</span> },
+            { key: 'label', label: 'Name', render: r => <span style={{ fontWeight: 600, opacity: r.active === false ? 0.5 : 1 }}>{r.label}</span> },
             { key: 'type', label: 'Type', render: r => <Badge color={LOC_COLORS[r.type]}>{r.type}</Badge> },
             ...(bt.type === 'dock' ? [{ key: 'zone', label: 'Zone', render: r => r.zone ? <Badge color={r.zone === 'Shipping' ? T.ac : r.zone === 'Receiving' ? T.in : T.pp} small>{r.zone}</Badge> : '—' }] : []),
+            { key: 'status', label: 'Status', render: r => r.active === false ? <Badge color={T.dg}>⛔ OOS</Badge> : <Badge color={T.ok} small>In Service</Badge> },
             { key: 'trailer', label: 'Current Trailer', render: r => { const tr = trailers.find(t => t.location_id === r.id); return tr ? <TTag number={tr.number} type={tr.type} /> : <span style={{ color: T.td }}>Empty</span>; } },
             { key: 'actions', label: '', render: r => (<div style={{ display: 'flex', gap: 6 }}>
+              <Btn small variant="ghost" onClick={async e => { e.stopPropagation(); const currentlyActive = r.active !== false; let reason = null; if (currentlyActive) { reason = prompt('Reason for taking out of service (optional):', ''); if (reason === null) return; } const { data, error } = await db.toggleLocationActive(r.id, !currentlyActive, reason); if (error) { alert('Error: ' + error.message); return; } setLocations(prev => prev.map(l => l.id === r.id ? data : l)); }} title={r.active === false ? 'Return to service' : 'Take out of service'}>{r.active === false ? '✓' : '⛔'}</Btn>
               <Btn small variant="ghost" onClick={e => { e.stopPropagation(); setEditLoc({ ...r }); }}>✏️</Btn>
               <Btn small variant="ghost" onClick={e => { e.stopPropagation(); if (confirm(`Delete ${r.label}?`)) handleDeleteLoc(r.id); }}>🗑️</Btn>
             </div>) },

@@ -77,6 +77,9 @@ export async function deleteLocation(id) {
   const { error } = await supabase.from('locations').delete().eq('id', id);
   return { error };
 }
+export async function toggleLocationActive(id, active, reason) {
+  return updateLocation(id, { active, inactive_reason: active ? null : (reason || null) });
+}
 
 // ─── TRAILERS ───────────────────────────────────────────────
 export async function fetchTrailers() {
@@ -89,6 +92,10 @@ export async function createTrailer({ number, type, status, location_id, carrier
 }
 export async function updateTrailer(id, updates) {
   const { data, error } = await supabase.from('trailers').update({ ...updates, last_moved: new Date().toISOString() }).eq('id', id).select().single();
+  return { data, error };
+}
+export async function toggleTrailerActive(id, active, reason) {
+  const { data, error } = await supabase.from('trailers').update({ active, inactive_reason: active ? null : (reason || null) }).eq('id', id).select().single();
   return { data, error };
 }
 export async function updateTrailerByNumber(number, updates) {

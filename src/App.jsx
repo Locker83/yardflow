@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, Component } from 'react';
+import { useState, useEffect, useCallback, useMemo, Component, Fragment } from 'react';
 import * as db from './lib/supabase';
 import { T, ROLE_COLORS, ROLES,
   Badge, Dot, Card, Btn, Input, Modal, Tbl, TTag, Avatar, Spinner } from './components/UI';
@@ -30,6 +30,12 @@ class ErrorBoundary extends Component {
     return this.props.children;
   }
 }
+
+// ─── FACILITY YARD MAP DATA (positions from Excel) ───
+const FACILITY_SPOTS = [[4,39,"N01","N1"],[4,40,"N02","N2"],[4,41,"N03","N3"],[4,42,"N04","N4"],[4,43,"N05","N5"],[4,44,"N06","N6"],[4,45,"N07","N7"],[4,46,"N08","N8"],[4,47,"N09","N9"],[4,48,"N10","N10"],[4,49,"N11","N11"],[4,50,"N12","N12"],[4,51,"N13","N13"],[4,52,"N14","N14"],[4,53,"N15","N15"],[4,54,"N16","N16"],[4,55,"N17","N17"],[6,37,"CC47","CC47"],[7,37,"CC46","CC46"],[7,56,"R01","R1"],[8,37,"CC45","CC45"],[8,47,"M01","M1"],[8,56,"R02","R2"],[9,37,"CC44","CC44"],[9,47,"M02","M2"],[9,56,"R03","R3"],[10,37,"CC43","CC43"],[10,47,"M03","M3"],[10,56,"R04","R4"],[11,11,"D-TATERS1","TATERS1"],[11,30,"X01","X1"],[11,31,"X02","X2"],[11,32,"X03","X3"],[11,33,"X04","X4"],[11,34,"X05","X5"],[11,35,"X06","X6"],[11,37,"CC42","CC42"],[11,47,"M04","M4"],[11,56,"R05","R5"],[12,37,"CC41","CC41"],[12,47,"M05","M5"],[12,56,"R06","R6"],[13,30,"X07","X7"],[13,31,"X08","X8"],[13,32,"X09","X9"],[13,33,"X10","X10"],[13,34,"X11","X11"],[13,35,"X12","X12"],[13,37,"CC40","CC40"],[13,47,"M06","M6"],[13,56,"R07","R7"],[14,11,"D-BF1","BF1"],[14,37,"CC39","CC39"],[14,47,"M07","M7"],[14,56,"R08","R8"],[15,30,"X13","X13"],[15,31,"X14","X14"],[15,32,"X15","X15"],[15,33,"X16","X16"],[15,34,"X17","X17"],[15,35,"X18","X18"],[15,37,"CC38","CC38"],[15,47,"M08","M8"],[15,56,"R09","R9"],[16,37,"CC37","CC37"],[16,47,"M09","M9"],[16,56,"R10","R10"],[17,30,"X19","X19"],[17,31,"X20","X20"],[17,32,"X21","X21"],[17,33,"X22","X22"],[17,34,"X23","X23"],[17,35,"X24","X24"],[17,37,"CC36","CC36"],[17,47,"M10","M10"],[17,56,"R11","R11"],[18,37,"CC35","CC35"],[18,47,"M11","M11"],[18,56,"R12","R12"],[19,37,"CC34","CC34"],[19,47,"M12","M12"],[19,56,"R13","R13"],[20,37,"CC33","CC33"],[20,47,"M13","M13"],[20,56,"R14","R14"],[21,37,"CC32","CC32"],[21,47,"M14","M14"],[21,56,"R15","R15"],[22,12,"D-RD1","RD1"],[22,37,"CC31","CC31"],[22,47,"M15","M15"],[22,56,"R16","R16"],[23,12,"D-RD2","RD2"],[23,37,"CC30","CC30"],[23,47,"M16","M16"],[23,56,"R17","R17"],[24,37,"CC29","CC29"],[24,47,"M17","M17"],[24,56,"R18","R18"],[25,37,"CC28","CC28"],[25,47,"M18","M18"],[25,56,"R19","R19"],[26,37,"CC27","CC27"],[26,47,"M19","M19"],[26,56,"R20","R20"],[27,37,"CC26","CC26"],[27,47,"M20","M20"],[27,56,"R21","R21"],[28,37,"CC25","CC25"],[28,47,"M21","M21"],[28,56,"R22","R22"],[29,37,"CC24","CC24"],[29,47,"M22","M22"],[29,56,"R23","R23"],[30,37,"CC23","CC23"],[30,47,"M23","M23"],[30,56,"R24","R24"],[31,37,"CC22","CC22"],[31,47,"M24","M24"],[31,56,"R25","R25"],[32,37,"CC21","CC21"],[32,47,"M25","M25"],[32,56,"R26","R26"],[33,37,"CC20","CC20"],[33,47,"M26","M26"],[33,56,"R27","R27"],[34,37,"CC19","CC19"],[34,47,"M27","M27"],[34,56,"R28","R28"],[35,3,"LIVE01","LIVE 1"],[35,37,"CC18","CC18"],[35,47,"M28","M28"],[35,56,"R29","R29"],[36,3,"LIVE02","LIVE 2"],[36,37,"CC17","CC17"],[36,47,"M29","M29"],[36,56,"R30","R30"],[37,3,"LIVE03","LIVE 3"],[37,37,"CC16","CC16"],[37,47,"M30","M30"],[37,56,"R31","R31"],[38,3,"LIVE04","LIVE 4"],[38,37,"CC15","CC15"],[38,47,"M31","M31"],[38,56,"R32","R32"],[39,3,"LIVE05","LIVE 5"],[39,37,"CC14","CC14"],[39,47,"M32","M32"],[39,56,"R33","R33"],[40,3,"LIVE06","LIVE 6"],[40,37,"CC13","CC13"],[40,47,"M33","M33"],[40,56,"R34","R34"],[41,3,"LIVE07","LIVE 7"],[41,37,"CC12","CC12"],[41,47,"M34","M34"],[41,56,"R35","R35"],[42,3,"LIVE08","LIVE 8"],[42,37,"CC11","CC11"],[42,47,"M35","M35"],[42,56,"R36","R36"],[43,3,"LIVE09","LIVE 9"],[43,37,"CC10","CC10"],[43,47,"M36","M36"],[43,56,"R37","R37"],[44,3,"LIVE10","LIVE 10"],[44,37,"CC09","CC9"],[44,47,"M37","M37"],[45,3,"LIVE11","LIVE 11"],[45,37,"CC08","CC8"],[45,47,"M38","M38"],[46,3,"LIVE12","LIVE 12"],[46,37,"CC07","CC7"],[46,47,"M39","M39"],[47,3,"LIVE13","LIVE 13"],[47,37,"CC06","CC6"],[47,47,"M40","M40"],[47,55,"R38","R38"],[48,3,"LIVE14","LIVE 14"],[48,37,"CC05","CC5"],[48,47,"M41","M41"],[48,55,"R39","R39"],[49,3,"ZONE01","ZONE 1"],[49,37,"CC04","CC4"],[49,47,"M42","M42"],[49,55,"R40","R40"],[50,3,"ZONE02","ZONE 2"],[50,37,"CC03","CC3"],[50,47,"M43","M43"],[50,55,"R41","R41"],[51,3,"ZONE03","ZONE 3"],[51,37,"CC02","CC2"],[51,47,"M44","M44"],[51,55,"R42","R42"],[52,3,"ZONE04","ZONE 4"],[52,30,"D-KD1","KD 1"],[52,37,"CC01","CC1"],[52,47,"M45","M45"],[52,55,"R43","R43"],[53,3,"ZONE05","ZONE 5"],[53,47,"M46","M46"],[53,55,"R44","R44"],[54,3,"ZONE06","ZONE 6"],[54,12,"D001","1"],[54,47,"M47","M47"],[55,3,"ZONE07","ZONE 7"],[55,12,"D002","2"],[55,36,"D051","51"],[55,47,"M48","M48"],[56,3,"ZONE08","ZONE 8"],[56,12,"D003","3"],[56,36,"D052","52"],[56,47,"M49","M49"],[57,3,"ZONE09","ZONE 9"],[57,12,"D004","4"],[57,36,"D053","53"],[57,47,"M50","M50"],[57,58,"DL01","DL1"],[57,59,"DL02","DL2"],[57,60,"DL03","DL3"],[57,61,"DL04","DL4"],[57,62,"DL05","DL5"],[57,63,"DL06","DL6"],[57,64,"DL07","DL7"],[58,3,"ZONE10","ZONE 10"],[58,12,"D005","5"],[58,36,"D054","54"],[58,47,"M51","M51"],[59,3,"ZONE11","ZONE 11"],[59,12,"D006","6"],[59,36,"D055","55"],[59,47,"M52","M52"],[60,3,"ZONE12","ZONE 12"],[60,12,"D007","7"],[60,36,"D056","56"],[60,47,"M53","M53"],[60,65,"DL08","DL8"],[61,3,"ZONE13","ZONE 13"],[61,12,"D008","8"],[61,36,"D057","57"],[61,47,"M54","M54"],[61,65,"DL09","DL9"],[62,3,"ZONE14","ZONE 14"],[62,12,"D009","9"],[62,36,"D058","58"],[62,47,"M55","M55"],[62,65,"DL10","DL10"],[63,3,"ZONE15","ZONE 15"],[63,12,"D010","10"],[63,36,"D059","59"],[63,47,"M56","M56"],[63,65,"DL11","DL11"],[64,3,"ZONE16","ZONE 16"],[64,12,"D011","11"],[64,36,"D060","60"],[64,47,"M57","M57"],[64,65,"DL12","DL12"],[65,3,"ZONE17","ZONE 17"],[65,12,"D012","12"],[65,36,"D061","61"],[65,47,"M58","M58"],[65,65,"DL13","DL13"],[66,3,"ZONE18","ZONE 18"],[66,12,"D013","13"],[66,36,"D062","62"],[66,47,"M59","M59"],[66,65,"DL14","DL14"],[67,3,"ZONE19","ZONE 19"],[67,12,"D014","14"],[67,36,"D063","63"],[67,47,"M60","M60"],[67,65,"DL15","DL15"],[68,3,"ZONE20","ZONE 20"],[68,12,"D015","15"],[68,36,"D064","64"],[68,47,"M61","M61"],[68,65,"DL16","DL16"],[69,3,"ZONE21","ZONE 21"],[69,12,"D016","16"],[69,36,"W14","W14"],[69,65,"DL17","DL17"],[70,3,"ZONE22","ZONE 22"],[70,12,"D017","17"],[70,36,"W13","W13"],[70,65,"DL18","DL18"],[71,3,"ZONE23","ZONE 23"],[71,12,"D018","18"],[71,36,"W12","W12"],[71,65,"DL19","DL19"],[72,3,"ZONE24","ZONE 24"],[72,12,"D019","19"],[72,36,"W11","W11"],[72,52,"ST01","ST1"],[72,54,"ST02","ST2"],[72,65,"DL20","DL20"],[73,12,"D020","20"],[73,36,"W10","W10"],[73,52,"ST03","ST3"],[73,54,"ST04","ST4"],[73,65,"DL21","DL21"],[74,2,"HOLD9","HOLD 9"],[74,12,"D021","21"],[74,36,"W09","W9"],[74,52,"ST05","ST5"],[74,54,"ST06","ST6"],[74,65,"DL22","DL22"],[75,2,"HOLD8","HOLD 8"],[75,12,"D022","22"],[75,36,"W08","W8"],[75,52,"ST07","ST7"],[75,54,"ST08","ST8"],[75,65,"DL23","DL23"],[76,2,"HOLD7","HOLD 7"],[76,12,"D023","23"],[76,36,"W07","W7"],[76,52,"ST09","ST9"],[76,54,"ST10","ST10"],[76,65,"DL24","DL24"],[77,2,"HOLD6","HOLD 6"],[77,36,"W06","W6"],[77,52,"ST11","ST11"],[77,54,"ST12","ST12"],[77,65,"DL25","DL25"],[78,36,"W05","W5"],[78,52,"BX6","BX 6"],[78,54,"ST13","ST13"],[79,36,"W04","W4"],[79,52,"BX5","BX 5"],[80,12,"D026","26"],[80,36,"W03","W3"],[80,52,"BX4","BX 4"],[81,12,"D027","27"],[81,36,"W02","W2"],[81,52,"BX3","BX 3"],[82,12,"D028","28"],[82,36,"W01","W1"],[82,52,"BX2","BX 2"],[83,12,"D029","29"],[83,52,"BX1","BX 1"],[84,12,"D030","30"],[84,52,"TEMP1","TEMP 1"],[84,54,"TEMP2","TEMP 2"],[85,12,"D031","31"],[86,12,"D032","32"],[87,12,"D033","33"],[88,12,"D034","34"],[89,12,"D035","35"],[90,12,"D036","36"],[91,12,"D037","37"],[92,12,"D038","38"],[93,12,"D039","39"],[94,12,"D040","40"],[95,12,"D041","41"],[96,12,"D042","42"],[97,12,"D043","43"],[98,12,"D044","44"],[99,12,"D045","45"]];
+const FACILITY_LONG_HOLDS = [[78,3,5,"HOLD5","HOLD 5"],[83,3,4,"HOLD4","HOLD 4"],[87,3,4,"HOLD3","HOLD 3"],[91,3,4,"HOLD2","HOLD 2"],[95,3,5,"HOLD1","HOLD 1"]];
+const FACILITY_BUILDINGS = [[5,13,17,95,"PLANT BUILDING"],[55,30,6,14,""],[22,1,4,3,"DRIVERS LOUNGE"],[42,9,4,4,"OFFICES /\nCONFERENCE"],[102,11,4,3,"GUARD SHACK"],[86,47,7,14,"TRAFFIC CENTER"],[88,48,5,4,"FUEL ISLAND"],[79,55,3,5,"EQUIP SHED"],[78,66,3,5,"EQUIPMENT &\nSTORAGE"]];
+const FACILITY_ZONES = [[34,1,7,14,"LIVE LOAD PARKING"],[48,1,7,25,"ZONE PARKING"],[73,1,9,28,"HOLD PARKING"]];
 
 // ─── LOGIN ──────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
@@ -248,8 +254,7 @@ function AppShell({ currentUser, onLogout }) {
   const [gateEntry, setGateEntry] = useState({ direction: 'in', load_id: '', trailer_number: '', carrier: '', load_type: '', notes: '' });
   const [gateFilter, setGateFilter] = useState('');
   const [archiveCount, setArchiveCount] = useState(0);
-  // Password reset
-  const [showForgot, setShowForgot] = useState(false);
+  const [selectedYardLoc, setSelectedYardLoc] = useState(null);
 
   // Derived from settings
   const TRAILER_TYPES = settings.trailerTypes || db.DEFAULT_SETTINGS.trailerTypes;
@@ -538,18 +543,124 @@ function AppShell({ currentUser, onLogout }) {
   // ─── RENDER: YARD MAP ───────────────────────────────────────
   const renderYard = () => {
     const at = lid => trailers.find(t => t.location_id === lid);
-    const Zone = ({ title, spots, color }) => (<div style={{ marginBottom: 20 }}><div style={{ fontSize: 13, fontWeight: 700, color, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 6 }}>{spots.map(s => { const tr = at(s.id); return (
-        <div key={s.id} style={{ padding: '8px 10px', borderRadius: 6, background: tr ? color + '18' : T.sa, border: `1px solid ${tr ? color + '55' : T.bd}`, fontSize: 11, minHeight: 58, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <div style={{ fontWeight: 700, color: T.tm, fontSize: 10 }}>{s.label}</div>
-          {tr ? <><div style={{ fontWeight: 800, color, fontSize: 13, fontFamily: "'JetBrains Mono',monospace" }}>{tr.number}</div><div style={{ fontSize: 9, color: T.td }}>{tr.type} • {tr.status}</div><div style={{ fontSize: 8, color: T.td }}>{tr.carrier || ''}</div></> : <div style={{ fontSize: 10, color: T.td }}>Empty</div>}
-        </div>); })}</div></div>);
-    return (<div>
-      <Zone title="🏗️ Shipping Docks" spots={dockLocs.filter(d => d.zone === 'Shipping')} color={T.ac} />
-      <Zone title="📥 Receiving Docks" spots={dockLocs.filter(d => d.zone === 'Receiving')} color={T.in} />
-      <Zone title="🔀 Cross-Docks" spots={dockLocs.filter(d => d.zone === 'Cross-Dock')} color={T.pp} />
-      <Zone title="📦 Yard Spots" spots={yardLocs} color={T.ok} />
-    </div>);
+    const EMPTY = T.ok;
+    const OCCUPIED = T.in;
+    const BUILDING_BG = '#5C4A38';
+    const BUILDING_BORDER = '#8B6F4E';
+    const BUILDING_TEXT = '#E8D9C4';
+    const FUEL_BG = '#7A5C3A';
+    const FUEL_BORDER = '#A88560';
+    const ZONE_BG = '#3A332A';
+    const ZONE_BORDER = '#5C4A38';
+    const ZONE_TEXT = '#A89580';
+    const CELL_W = 38, CELL_H = 26;
+    const ROWS = 110, COLS = 69;
+
+    const allYardSpots = locations.filter(l => l.type === 'yard');
+    const allDocks = locations.filter(l => l.type === 'dock');
+    const occupiedYard = allYardSpots.filter(s => at(s.id)).length;
+    const occupiedDocks = allDocks.filter(s => at(s.id)).length;
+
+    const handleSpotClick = (id) => {
+      const loc = locations.find(l => l.id === id);
+      if (loc) setSelectedYardLoc({ loc, trailer: at(id) });
+    };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <Card style={{ padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <div><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Docks</div><div style={{ fontSize: 16, fontWeight: 800 }}><span style={{ color: OCCUPIED }}>{occupiedDocks}</span> <span style={{ color: T.tm }}>/ {allDocks.length}</span></div></div>
+              <div><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Yard Spots</div><div style={{ fontSize: 16, fontWeight: 800 }}><span style={{ color: OCCUPIED }}>{occupiedYard}</span> <span style={{ color: T.tm }}>/ {allYardSpots.length}</span></div></div>
+              <div><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Total Trailers</div><div style={{ fontSize: 16, fontWeight: 800, color: T.ac }}>{trailers.length}</div></div>
+            </div>
+            <div style={{ display: 'flex', gap: 14, fontSize: 11, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 14, height: 14, background: EMPTY + '22', border: `1.5px solid ${EMPTY}`, borderRadius: 3 }} /><span style={{ color: T.tm }}>Empty</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 14, height: 14, background: OCCUPIED + '44', border: `1.5px solid ${OCCUPIED}`, borderRadius: 3 }} /><span style={{ color: T.tm }}>Occupied</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 14, height: 14, background: BUILDING_BG, border: `1.5px solid ${BUILDING_BORDER}`, borderRadius: 3 }} /><span style={{ color: T.tm }}>Building</span></div>
+              <div style={{ color: T.td, fontSize: 10 }}>Tap any spot for details</div>
+            </div>
+          </div>
+        </Card>
+
+        <Card style={{ padding: 16, overflow: 'auto', maxHeight: '75vh' }}>
+          <div style={{ position: 'relative', width: COLS * CELL_W, height: ROWS * CELL_H }}>
+            {FACILITY_ZONES.map(([r, c, w, h, text], i) => (
+              <Fragment key={'zone-' + i}>
+                <div style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: w * CELL_W - 2, height: h * CELL_H - 2, background: ZONE_BG, border: `1px dashed ${ZONE_BORDER}`, borderRadius: 4 }} />
+                <div style={{ position: 'absolute', left: c * CELL_W + 4, top: r * CELL_H + 6, height: h * CELL_H - 12, width: 24, color: ZONE_TEXT, fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em', writingMode: 'vertical-rl', transform: 'rotate(180deg)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>{text}</div>
+              </Fragment>
+            ))}
+
+            {FACILITY_BUILDINGS.map(([r, c, w, h, text], i) => {
+              const isFuel = text === 'FUEL ISLAND';
+              const isTC = text === 'TRAFFIC CENTER';
+              return (
+                <div key={'bldg-' + i} style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: w * CELL_W - 2, height: h * CELL_H - 2, background: isFuel ? FUEL_BG : BUILDING_BG, border: `2px solid ${isFuel ? FUEL_BORDER : BUILDING_BORDER}`, borderRadius: 6, color: BUILDING_TEXT, fontSize: 15, fontWeight: 800, padding: 10, textTransform: 'uppercase', letterSpacing: '0.12em', display: 'flex', alignItems: isTC ? 'flex-start' : 'center', justifyContent: 'center', textAlign: 'center', whiteSpace: 'pre-line', lineHeight: 1.3 }}>{text}</div>
+              );
+            })}
+
+            {FACILITY_LONG_HOLDS.map(([r, c, h, id, label]) => {
+              const tr = at(id);
+              const color = tr ? OCCUPIED : EMPTY;
+              const bg = tr ? OCCUPIED + '44' : EMPTY + '22';
+              return (
+                <div key={id} onClick={() => handleSpotClick(id)} title={label + (tr ? ': ' + tr.number : ': Empty')} style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: CELL_W * 2 - 2, height: h * CELL_H - 2, background: bg, border: `2px solid ${color}`, borderRadius: 4, color, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', lineHeight: 1.2 }}>
+                  <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 12, opacity: 0.8, fontWeight: 700 }}>{label}</div>
+                  {tr && <div style={{ marginTop: 6, fontWeight: 800, fontSize: 14 }}>{tr.number}</div>}
+                </div>
+              );
+            })}
+
+            {FACILITY_SPOTS.map(([r, c, id, label]) => {
+              const tr = at(id);
+              const color = tr ? OCCUPIED : EMPTY;
+              const bg = tr ? OCCUPIED + '44' : EMPTY + '22';
+              return (
+                <div key={id} onClick={() => handleSpotClick(id)} title={label + (tr ? ': ' + tr.number : ': Empty')} style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: CELL_W - 3, height: CELL_H - 2, background: bg, border: `1.5px solid ${color}`, borderRadius: 3, color, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', lineHeight: 1.1 }}>
+                  {tr ? (
+                    <Fragment>
+                      <div style={{ fontSize: 9, opacity: 0.8 }}>{label}</div>
+                      <div style={{ fontSize: 11, fontWeight: 800 }}>{tr.number}</div>
+                    </Fragment>
+                  ) : (
+                    <div style={{ fontSize: 11 }}>{label}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        <Modal open={!!selectedYardLoc} onClose={() => setSelectedYardLoc(null)} title={selectedYardLoc ? `${selectedYardLoc.loc.label} (${selectedYardLoc.loc.id})` : ''} width={460}>
+          {selectedYardLoc && <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ padding: 14, background: T.sa, borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: T.tm, textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Type</div>
+              <Badge color={selectedYardLoc.loc.type === 'dock' ? T.ac : selectedYardLoc.loc.type === 'gate' ? T.wn : T.in}>{selectedYardLoc.loc.type}</Badge>
+            </div>
+            {selectedYardLoc.trailer ? (
+              <div style={{ padding: 14, background: OCCUPIED + '15', border: `1px solid ${OCCUPIED}44`, borderRadius: 8 }}>
+                <div style={{ fontSize: 11, color: T.tm, textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>Trailer Currently Here</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: OCCUPIED, fontFamily: "'JetBrains Mono', monospace", marginBottom: 8 }}>{selectedYardLoc.trailer.number}</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {selectedYardLoc.trailer.type && <Badge color={T.in}>{selectedYardLoc.trailer.type}</Badge>}
+                  {selectedYardLoc.trailer.status && <Badge color={T.pp}>{selectedYardLoc.trailer.status}</Badge>}
+                  {selectedYardLoc.trailer.carrier && <Badge color={T.tm}>{selectedYardLoc.trailer.carrier}</Badge>}
+                </div>
+                {selectedYardLoc.trailer.notes && <div style={{ marginTop: 10, fontSize: 12, color: T.tm }}>📝 {selectedYardLoc.trailer.notes}</div>}
+                {selectedYardLoc.trailer.last_moved && <div style={{ marginTop: 10, fontSize: 11, color: T.td }}>Last moved: {db.fmtDate(selectedYardLoc.trailer.last_moved)}</div>}
+              </div>
+            ) : (
+              <div style={{ padding: 20, background: EMPTY + '15', border: `1px solid ${EMPTY}44`, borderRadius: 8, textAlign: 'center' }}>
+                <div style={{ fontSize: 28, marginBottom: 6 }}>✓</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: EMPTY }}>Empty / Available</div>
+              </div>
+            )}
+          </div>}
+        </Modal>
+      </div>
+    );
   };
 
   // ─── RENDER: HOSTLER VIEW ───────────────────────────────────
@@ -701,24 +812,27 @@ function AppShell({ currentUser, onLogout }) {
     setSettings(updated);
     await db.updateSettings(updated);
   };
-  const renderSettings = () => {
-    const ListEditor = ({ title, items, onAdd, onRemove, newVal, setNewVal, placeholder }) => (
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: T.tx, marginBottom: 10 }}>{title}</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-          {items.map(item => (
-            <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: T.sa, border: `1px solid ${T.bd}`, borderRadius: 6, fontSize: 13 }}>
-              <span>{item}</span>
-              <button onClick={() => onRemove(item)} style={{ background: 'none', border: 'none', color: T.dg, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit', padding: 0, lineHeight: 1 }}>✕</button>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input value={newVal} onChange={e => setNewVal(e.target.value)} placeholder={placeholder} onKeyDown={e => { if (e.key === 'Enter' && newVal.trim()) { onAdd(); } }} style={{ flex: 1, padding: '8px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
-          <Btn small onClick={onAdd} disabled={!newVal.trim()}>+ Add</Btn>
-        </div>
+  // ListEditor must be defined OUTSIDE renderSettings to prevent re-mounting on every render
+  // (re-mounting destroys input state and breaks the Add button)
+  const ListEditor = useCallback(({ title, items, onAdd, onRemove, newVal, setNewVal, placeholder }) => (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.tx, marginBottom: 10 }}>{title}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+        {items.map(item => (
+          <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: T.sa, border: `1px solid ${T.bd}`, borderRadius: 6, fontSize: 13 }}>
+            <span>{item}</span>
+            <button onClick={() => onRemove(item)} style={{ background: 'none', border: 'none', color: T.dg, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit', padding: 0, lineHeight: 1 }}>✕</button>
+          </div>
+        ))}
       </div>
-    );
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input value={newVal} onChange={e => setNewVal(e.target.value)} placeholder={placeholder} onKeyDown={e => { if (e.key === 'Enter' && newVal.trim()) { onAdd(); } }} style={{ flex: 1, padding: '8px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+        <Btn small onClick={onAdd} disabled={!newVal.trim()}>+ Add</Btn>
+      </div>
+    </div>
+  ), []);
+
+  const renderSettings = () => {
     return (<div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <Card>
         <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>🚛 Trailer Types</h3>

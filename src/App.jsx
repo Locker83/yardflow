@@ -1103,7 +1103,9 @@ function AppShell({ currentUser, onLogout }) {
     { id: 'users', label: 'Users', icon: '👥' },
   ];
   const myAccess = screenAccess[role] || DEFAULT_ACCESS[role] || [];
-  const nav = allScreens.filter(s => myAccess.includes(s.id));
+  // Managers always get Users screen access (can't be removed via screen access config)
+  const effectiveAccess = role === 'manager' && !myAccess.includes('users') ? [...myAccess, 'users'] : myAccess;
+  const nav = allScreens.filter(s => effectiveAccess.includes(s.id));
 
   // Close sidebar on mobile when navigating
   const navTo = (id) => { setView(id); setFilter(''); setSf(''); setHf(''); setUserFilter(''); setLocFilter(''); setGateFilter(''); if (isMobile) setSidebarOpen(false); };

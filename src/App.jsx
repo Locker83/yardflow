@@ -279,7 +279,7 @@ function AppShell({ currentUser, onLogout }) {
   // Screen access controls (admin-configurable, stored in localStorage)
   const DEFAULT_ACCESS = {
     admin: ['dashboard', 'moves', 'trailers', 'yard', 'hostler', 'analytics', 'guard', 'locations', 'settings', 'users'],
-    manager: ['dashboard', 'moves', 'trailers', 'yard', 'analytics', 'guard'],
+    manager: ['dashboard', 'moves', 'trailers', 'yard', 'analytics', 'guard', 'users'],
     warehouse: ['moves', 'trailers', 'yard'],
     hostler: ['hostler', 'yard'],
     guard: ['guard'],
@@ -791,8 +791,8 @@ function AppShell({ currentUser, onLogout }) {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><Btn onClick={() => setShowAddUser(true)}>+ Add User</Btn><Input placeholder="Search..." value={userFilter} onChange={setUserFilter} style={{ width: 260 }} /><div style={{ marginLeft: 'auto', fontSize: 13, color: T.tm }}>{users.filter(u => u.active).length} active · {users.length} total</div></div>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12 }}>{ROLES.map(r => { const count = users.filter(u => u.role === r.id && u.active).length; return (<Card key={r.id} style={{ padding: 14 }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase' }}>{r.label}s</div><div style={{ fontSize: 24, fontWeight: 800, color: ROLE_COLORS[r.id], marginTop: 4 }}>{count}</div></div><Badge color={ROLE_COLORS[r.id]}>{r.id}</Badge></div></Card>); })}</div>
 
-      {/* Screen Access Controls */}
-      <Card>
+      {/* Screen Access Controls — admin only */}
+      {isAdmin && <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🔐 Screen Access by Role</h3>
           <Btn small variant="ghost" onClick={() => updateScreenAccess(DEFAULT_ACCESS)}>Reset to Defaults</Btn>
@@ -819,10 +819,28 @@ function AppShell({ currentUser, onLogout }) {
           </table>
         </div>
         <div style={{ marginTop: 12, fontSize: 11, color: T.td }}>Admin always has full access. Users & Locations are admin-only.</div>
-      </Card>
+      </Card>}
 
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <Tbl columns={[{ key: 'av', label: '', render: r => <Avatar name={r.name} color={r.color} size={28} /> }, { key: 'name', label: 'Name', render: r => <div><div style={{ fontWeight: 600 }}>{r.name}</div><div style={{ fontSize: 11, color: T.td, fontFamily: "'JetBrains Mono',monospace" }}>{r.username}</div></div> }, { key: 'role', label: 'Role', render: r => <Badge color={ROLE_COLORS[r.role]}>{r.role}</Badge> }, { key: 'active', label: 'Status', render: r => r.active ? <Badge color={T.ok}>Active</Badge> : <Badge color={T.dg}>Disabled</Badge> }, { key: 'cr', label: 'Created', render: r => db.fmtDate(r.created_at) }, { key: 'actions', label: 'Actions', render: r => (<div style={{ display: 'flex', gap: 6 }}><Btn small variant="ghost" onClick={e => { e.stopPropagation(); setEditUser({ ...r }); }}>✏️</Btn><Btn small variant="ghost" onClick={e => { e.stopPropagation(); setShowPwReset(r); }}>🔑</Btn><Btn small variant="ghost" onClick={e => { e.stopPropagation(); handleToggleUser(r.id, r.active); }}>{r.active ? '🚫' : '✅'}</Btn>{r.id !== currentUser.id && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); if (confirm(`Delete ${r.name}?`)) handleDeleteUser(r.id); }}>🗑️</Btn>}</div>) }]} data={filtered.sort((a, b) => { const ro = { admin: 0, manager: 1, warehouse: 2, hostler: 3 }; return (ro[a.role] ?? 9) - (ro[b.role] ?? 9); })} />
+        <Tbl columns={[
+          { key: 'av', label: '', render: r => <Avatar name={r.name} color={r.color} size={28} /> },
+          { key: 'name', label: 'Name', render: r => <div><div style={{ fontWeight: 600 }}>{r.name}</div><div style={{ fontSize: 11, color: T.td, fontFamily: "'JetBrains Mono',monospace" }}>{r.username}</div></div> },
+          { key: 'role', label: 'Role', render: r => <Badge color={ROLE_COLORS[r.role]}>{r.role}</Badge> },
+          { key: 'active', label: 'Status', render: r => r.active ? <Badge color={T.ok}>Active</Badge> : <Badge color={T.dg}>Disabled</Badge> },
+          { key: 'cr', label: 'Created', render: r => db.fmtDate(r.created_at) },
+          { key: 'actions', label: 'Actions', render: r => {
+            // Managers cannot edit/delete/disable admin users
+            const isTargetAdmin = r.role === 'admin';
+            const canManage = isAdmin || !isTargetAdmin;
+            return (<div style={{ display: 'flex', gap: 6 }}>
+              {canManage && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); setEditUser({ ...r }); }}>✏️</Btn>}
+              {canManage && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); setShowPwReset(r); }}>🔑</Btn>}
+              {canManage && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); handleToggleUser(r.id, r.active); }}>{r.active ? '🚫' : '✅'}</Btn>}
+              {canManage && r.id !== currentUser.id && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); if (confirm(`Delete ${r.name}?`)) handleDeleteUser(r.id); }}>🗑️</Btn>}
+              {!canManage && <span style={{ fontSize: 11, color: T.td }}>Admin — no changes</span>}
+            </div>);
+          } }
+        ]} data={filtered.sort((a, b) => { const ro = { admin: 0, manager: 1, warehouse: 2, hostler: 3 }; return (ro[a.role] ?? 9) - (ro[b.role] ?? 9); })} />
       </Card>
     </div>);
   };
@@ -1165,7 +1183,7 @@ function AppShell({ currentUser, onLogout }) {
           {view === 'guard' && renderGuard()}
           {view === 'locations' && isAdmin && renderLocations()}
           {view === 'settings' && isAdmin && renderSettings()}
-          {view === 'users' && isAdmin && renderUsers()}
+          {view === 'users' && (isAdmin || role === 'manager') && renderUsers()}
         </div>
       </div>
 
@@ -1302,7 +1320,7 @@ function AppShell({ currentUser, onLogout }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><Input label="Full Name" value={newUser.name} onChange={v => setNewUser(p => ({ ...p, name: v }))} placeholder="John Smith" /><Input label="Username" value={newUser.username} onChange={v => setNewUser(p => ({ ...p, username: v }))} placeholder="john.s" /></div>
           <Input label="Email (for password reset)" type="email" value={newUser.email} onChange={v => setNewUser(p => ({ ...p, email: v }))} placeholder="john.smith@pepsico.com" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><Input label="Password" value={newUser.password} onChange={v => setNewUser(p => ({ ...p, password: v }))} /><Input label="Role" options={ROLES.map(r => ({ value: r.id, label: r.label }))} value={newUser.role} onChange={v => setNewUser(p => ({ ...p, role: v }))} /></div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><Input label="Password" value={newUser.password} onChange={v => setNewUser(p => ({ ...p, password: v }))} /><Input label="Role" options={ROLES.filter(r => isAdmin || r.id !== 'admin').map(r => ({ value: r.id, label: r.label }))} value={newUser.role} onChange={v => setNewUser(p => ({ ...p, role: v }))} /></div>
           <div><label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Color</label><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="color" value={newUser.color} onChange={e => setNewUser(p => ({ ...p, color: e.target.value }))} style={{ width: 40, height: 32, border: 'none', borderRadius: 6, cursor: 'pointer' }} /><Avatar name={newUser.name || '?'} color={newUser.color} size={32} /></div></div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}><Btn variant="secondary" onClick={() => setShowAddUser(false)}>Cancel</Btn><Btn onClick={handleAddUser} disabled={!newUser.name || !newUser.username || !newUser.password || !newUser.role}>Create User</Btn></div>
         </div>
@@ -1313,7 +1331,7 @@ function AppShell({ currentUser, onLogout }) {
           <Input label="Name" value={editUser.name} onChange={v => setEditUser(p => ({ ...p, name: v }))} />
           <Input label="Username" value={editUser.username} onChange={v => setEditUser(p => ({ ...p, username: v }))} />
           <Input label="Email" type="email" value={editUser.email || ''} onChange={v => setEditUser(p => ({ ...p, email: v }))} placeholder="user@pepsico.com" />
-          <Input label="Role" options={ROLES.map(r => ({ value: r.id, label: r.label }))} value={editUser.role} onChange={v => setEditUser(p => ({ ...p, role: v }))} />
+          <Input label="Role" options={ROLES.filter(r => isAdmin || r.id !== 'admin').map(r => ({ value: r.id, label: r.label }))} value={editUser.role} onChange={v => setEditUser(p => ({ ...p, role: v }))} />
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}><Btn variant="secondary" onClick={() => setEditUser(null)}>Cancel</Btn><Btn onClick={handleEditUser}>Save</Btn></div>
         </div>}
       </Modal>

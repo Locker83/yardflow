@@ -1245,26 +1245,22 @@ function AppShell({ currentUser, onLogout }) {
           {completeModal.type === 'to-dock' && <>
             <Input label="Trailer # You're Bringing" value={cmFields.trailerNumber} onChange={v => setCmFields(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
             {cmFields.trailerNumber && trailerMap[cmFields.trailerNumber] && <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Found: {trailerMap[cmFields.trailerNumber].type} — {trailerMap[cmFields.trailerNumber].status} at {locLabel(trailerMap[cmFields.trailerNumber].location_id)}</div>}
-            <Input label="Pulled From (Yard Spot)" options={yardLocs.map(l => ({ value: l.id, label: l.label }))} value={cmFields.yardSpot} onChange={v => setCmFields(p => ({ ...p, yardSpot: v }))} />
           </>}
 
           {completeModal.type === 'from-dock' && <>
             <Input label="Trailer # Being Pulled" value={cmFields.trailerNumber} onChange={v => setCmFields(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
             {cmFields.trailerNumber && trailerMap[cmFields.trailerNumber] && <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Found: {trailerMap[cmFields.trailerNumber].type} — {trailerMap[cmFields.trailerNumber].status} at {locLabel(trailerMap[cmFields.trailerNumber].location_id)}</div>}
-            <Input label="Dropped At (Yard Spot)" options={yardLocs.map(l => ({ value: l.id, label: l.label }))} value={cmFields.yardSpot} onChange={v => setCmFields(p => ({ ...p, yardSpot: v }))} />
             {completeModal.requested_trailer_type && <div style={{ padding: '8px 12px', background: T.in + '15', borderRadius: 6, fontSize: 12, color: T.in }}>ℹ️ A new "To Dock" request for a <strong>{completeModal.requested_trailer_type}</strong> will be auto-created when you complete this.</div>}
           </>}
 
           {completeModal.type === 'yard-move' && <>
             <Input label="Trailer #" value={cmFields.trailerNumber} onChange={v => setCmFields(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
             {cmFields.trailerNumber && trailerMap[cmFields.trailerNumber] && <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Found: {trailerMap[cmFields.trailerNumber].type} — {trailerMap[cmFields.trailerNumber].status} at {locLabel(trailerMap[cmFields.trailerNumber].location_id)}</div>}
-            <Input label="From Location" options={locations.map(l => ({ value: l.id, label: l.label }))} value={cmFields.fromSpot} onChange={v => setCmFields(p => ({ ...p, fromSpot: v }))} />
-            <Input label="To Location" options={locations.map(l => ({ value: l.id, label: l.label }))} value={cmFields.yardSpot} onChange={v => setCmFields(p => ({ ...p, yardSpot: v }))} />
           </>}
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <Btn variant="secondary" onClick={() => setCompleteModal(null)}>Back</Btn>
-            <Btn variant="success" onClick={handleCompleteMove} disabled={!cmFields.trailerNumber || !cmFields.yardSpot || (completeModal.type === 'yard-move' && !cmFields.fromSpot)}>✓ Complete Move</Btn>
+            <Btn variant="success" onClick={handleCompleteMove} disabled={!cmFields.trailerNumber}>✓ Complete Move</Btn>
           </div>
         </div>}
       </Modal>

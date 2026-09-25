@@ -250,7 +250,7 @@ function AppShell({ currentUser, onLogout }) {
   const [editLoc, setEditLoc] = useState(null);
   const [locFilter, setLocFilter] = useState('');
   // Move form: type is 'to-dock' or 'from-dock'
-  const [nm, setNm] = useState({ type: 'to-dock', dock: '', trailerType: '', priority: 'normal', notes: '' });
+  const [nm, setNm] = useState({ type: 'to-dock', dock: '', trailerType: '', loadStatus: '', priority: 'normal', notes: '' });
   const [nt, setNt] = useState({ number: '', type: 'Dry Van', status: 'Empty', location: '', carrier: '', notes: '' });
   const [newUser, setNewUser] = useState({ username: '', password: '', name: '', email: '', role: 'hostler', color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0') });
   const [newLoc, setNewLoc] = useState({ id: '', label: '', type: 'dock', zone: '' });
@@ -394,12 +394,12 @@ function AppShell({ currentUser, onLogout }) {
       requested_by: currentUser.name, // LOCKED to current user
       requested_by_user: currentUser.id,
       priority: nm.priority,
-      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : nm.notes,
+      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : [nm.loadStatus ? `[${nm.loadStatus.toUpperCase()}]` : '', nm.notes].filter(Boolean).join(' '),
       requested_trailer_type: nm.type === 'to-dock' ? nm.trailerType : (nm.requestBackType || ''),
     };
     await db.createMove(moveData);
     setShowNewMove(false);
-    setNm({ type: 'to-dock', dock: '', trailerType: '', trailerNumber: '', requestBackType: '', priority: 'normal', notes: '' });
+    setNm({ type: 'to-dock', dock: '', trailerType: '', trailerNumber: '', loadStatus: '', requestBackType: '', priority: 'normal', notes: '' });
     db.fetchMoves().then(r => setMoves(r.data));
   };
 
@@ -1358,9 +1358,10 @@ function AppShell({ currentUser, onLogout }) {
             <div style={{ padding: '10px 14px', background: T.wn + '15', borderRadius: 8, fontSize: 12, color: T.wn }}>🔧 Trailer stays at the dock — hostler will reposition it so the dock plate can extend properly.</div>
           )}
 
-          {nm.type === 'to-dock' && (
+          {nm.type === 'to-dock' && (<>
             <Input label="Trailer Type Needed" options={[{ value: '', label: '— Any Type —' }, ...TRAILER_TYPES.map(t => ({ value: t, label: t }))]} value={nm.trailerType} onChange={v => setNm(p => ({ ...p, trailerType: v }))} />
-          )}
+            <Input label="Dock Activity" options={[{ value: '', label: '— Select —' }, { value: 'Load', label: '📦 Load' }, { value: 'Unload', label: '📤 Unload' }]} value={nm.loadStatus} onChange={v => setNm(p => ({ ...p, loadStatus: v }))} />
+          </>)}
 
           {nm.type === 'from-dock' && (
             <Input label="Need a Trailer Back? (optional)" options={[{ value: '', label: '— No, just pull —' }, ...TRAILER_TYPES.map(t => ({ value: t, label: t }))]} value={nm.requestBackType || ''} onChange={v => setNm(p => ({ ...p, requestBackType: v }))} />

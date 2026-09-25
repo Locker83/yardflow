@@ -146,13 +146,22 @@ export async function completeMove(moveId, hostlerUpdates = {}) {
   if (tNum && tLoc) {
     const { data: existing } = await supabase.from('trailers').select('id').eq('number', tNum).maybeSingle();
     if (existing) {
-      await updateTrailerByNumber(tNum, { location_id: tLoc });
+      const statusUpdate = { location_id: tLoc };
+      // Update trailer status based on dock activity tag in notes
+      const notes = data?.notes || '';
+      if (notes.includes('[LOAD]')) statusUpdate.status = 'Empty'; // trailer arriving empty to be loaded
+      if (notes.includes('[UNLOAD]')) statusUpdate.status = 'Loaded'; // trailer arriving loaded to be unloaded
+      await updateTrailerByNumber(tNum, statusUpdate);
     } else {
       // Auto-register the trailer so dock/yard views reflect it
+      const notes = data?.notes || '';
+      let autoStatus = 'Empty';
+      if (notes.includes('[LOAD]')) autoStatus = 'Empty';
+      if (notes.includes('[UNLOAD]')) autoStatus = 'Loaded';
       const { error: insertErr } = await supabase.from('trailers').insert({
         number: tNum,
         type: hostlerUpdates.trailer_type || data?.trailer_type || '',
-        status: 'Empty',
+        status: autoStatus,
         location_id: tLoc,
         carrier: '',
         notes: 'Auto-created from move completion',

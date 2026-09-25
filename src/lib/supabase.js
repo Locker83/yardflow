@@ -144,19 +144,20 @@ export async function completeMove(moveId, hostlerUpdates = {}) {
   const tNum = hostlerUpdates.trailer_number || data?.trailer_number;
   const tLoc = hostlerUpdates.to_location || data?.to_location;
   if (tNum && tLoc) {
-    const { data: existing } = await supabase.from('trailers').select('id').eq('number', tNum).single();
+    const { data: existing } = await supabase.from('trailers').select('id').eq('number', tNum).maybeSingle();
     if (existing) {
       await updateTrailerByNumber(tNum, { location_id: tLoc });
     } else {
       // Auto-register the trailer so dock/yard views reflect it
-      await supabase.from('trailers').insert({
+      const { error: insertErr } = await supabase.from('trailers').insert({
         number: tNum,
         type: hostlerUpdates.trailer_type || data?.trailer_type || '',
-        status: 'Unknown',
+        status: 'Empty',
         location_id: tLoc,
         carrier: '',
         notes: 'Auto-created from move completion',
       });
+      if (insertErr) console.error('Auto-create trailer failed:', insertErr);
     }
   }
 

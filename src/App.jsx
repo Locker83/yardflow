@@ -302,6 +302,27 @@ function AppShell({ currentUser, onLogout }) {
         if (s.data) setSettings(s.data);
         db.fetchGateLog().then(r => setGateLog(r.data || []));
         db.fetchArchiveCount().then(setArchiveCount);
+
+        // Sync: auto-register trailers from completed moves that aren't in inventory yet
+        const existingNums = new Set((t.data || []).map(tr => tr.number));
+        const completedMoves = (m.data || []).filter(mv => mv.status === 'completed' && mv.trailer_number && mv.to_location && !existingNums.has(mv.trailer_number));
+        // Dedupe by trailer number (latest move wins)
+        const toSync = {};
+        for (const mv of completedMoves) toSync[mv.trailer_number] = mv;
+        for (const mv of Object.values(toSync)) {
+          await db.supabase.from('trailers').insert({
+            number: mv.trailer_number,
+            type: mv.trailer_type || '',
+            status: 'Empty',
+            location_id: mv.to_location,
+            carrier: '',
+            notes: 'Auto-synced from completed move',
+          }).then(({ error }) => { if (error) console.error('Sync trailer insert failed:', error); });
+        }
+        if (Object.keys(toSync).length > 0) {
+          // Refresh trailers after sync
+          db.fetchTrailers().then(r => setTrailers(r.data || []));
+        }
       } catch (err) { console.error('Failed to load data:', err); }
       setLoading(false);
     })();
@@ -1313,7 +1334,16 @@ function AppShell({ currentUser, onLogout }) {
           </div>
 
           {nm.type !== 'yard-move' && (
-            <Input label={nm.type === 'dock-adjust' ? 'Dock to Adjust' : nm.type === 'to-dock' ? 'Destination Dock' : 'Source Dock'} options={dockLocs.map(l => ({ value: l.id, label: l.label }))} value={nm.dock} onChange={v => setNm(p => ({ ...p, dock: v }))} />
+            <Input label={nm.type === 'dock-adjust' ? 'Dock to Adjust' : nm.type === 'to-dock' ? 'Destination Dock' : 'Source Dock'} options={dockLocs.map(l => ({ value: l.id, label: l.label }))} value={nm.dock} onChange={v => {
+              const update = { ...nm, dock: v };
+              // Auto-populate trailer # for dock-adjust if a trailer is at the selected dock
+              if (nm.type === 'dock-adjust' && v) {
+                const trAtDock = trailers.find(t => t.location_id === v);
+                if (trAtDock) update.trailerNumber = trAtDock.number;
+                else update.trailerNumber = '';
+              }
+              setNm(update);
+            }} />
           )}
 
           {nm.type === 'dock-adjust' && (

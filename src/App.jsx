@@ -258,6 +258,7 @@ function AppShell({ currentUser, onLogout }) {
   const [cmFields, setCmFields] = useState({ trailerNumber: '', yardSpot: '', fromSpot: '' });
   const [cancelModal, setCancelModal] = useState(null); // move being cancelled
   const [cancelReason, setCancelReason] = useState('');
+  const [editMove, setEditMove] = useState(null); // editing a pending move
   const [settings, setSettings] = useState(db.DEFAULT_SETTINGS);
   const [newType, setNewType] = useState('');
   const [newStatus, setNewStatus] = useState('');
@@ -450,6 +451,21 @@ function AppShell({ currentUser, onLogout }) {
     if (!cancelModal || !cancelReason.trim()) return;
     await db.cancelMove(cancelModal.id, cancelReason);
     setCancelModal(null); setCancelReason('');
+    db.fetchMoves().then(r => setMoves(r.data));
+  };
+
+  const handleSaveEditMove = async () => {
+    if (!editMove) return;
+    const updates = {
+      priority: editMove.priority,
+      requested_trailer_type: editMove.requested_trailer_type || '',
+      notes: editMove.notes || '',
+    };
+    // Allow changing dock if type is to-dock or from-dock
+    if (editMove.type === 'to-dock') updates.to_location = editMove.to_location;
+    if (editMove.type === 'from-dock') updates.from_location = editMove.from_location;
+    await db.supabase.from('moves').update(updates).eq('id', editMove.id);
+    setEditMove(null); setSelMove(null);
     db.fetchMoves().then(r => setMoves(r.data));
   };
 
@@ -1310,6 +1326,29 @@ function AppShell({ currentUser, onLogout }) {
           {selMove.cancel_reason && <div style={{ padding: '8px 12px', background: T.dg + '15', borderRadius: 6, fontSize: 12, color: T.dg }}>Cancel reason: {selMove.cancel_reason}</div>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
             {[['Requested', selMove.created_at], ['Claimed', selMove.claimed_at], ['Started', selMove.started_at], ['Completed', selMove.completed_at]].map(([l, v]) => <div key={l}><div style={{ fontSize: 10, color: T.td, textTransform: 'uppercase', fontWeight: 700 }}>{l}</div><div style={{ fontSize: 12 }}>{v ? db.fmtDate(v) : '—'}</div></div>)}
+          </div>
+          {selMove.status === 'pending' && (selMove.requested_by_user === currentUser.id || isAdmin || role === 'manager') && (
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', borderTop: `1px solid ${T.bd}`, paddingTop: 14 }}>
+              <Btn variant="secondary" onClick={() => { setEditMove({ ...selMove }); }}>✏️ Edit</Btn>
+              <Btn variant="danger" onClick={() => { setSelMove(null); setCancelModal(selMove); setCancelReason(''); }}>✕ Cancel Move</Btn>
+            </div>
+          )}
+        </div>}
+      </Modal>
+
+      {/* ── EDIT PENDING MOVE MODAL ── */}
+      <Modal open={!!editMove} onClose={() => setEditMove(null)} title={`Edit Move #${editMove?.move_number}`} width={480}>
+        {editMove && <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span style={{ fontSize: 18 }}>{mti(editMove.type)}</span><strong>{mtl(editMove.type)}</strong></div>
+          <Input label="Priority" options={[{ value: 'normal', label: 'Normal' }, { value: 'urgent', label: '🔴 Urgent' }]} value={editMove.priority} onChange={v => setEditMove(p => ({ ...p, priority: v }))} />
+          {editMove.type !== 'yard-move' && (
+            <Input label={editMove.type === 'to-dock' ? 'Destination Dock' : 'Source Dock'} options={dockLocs.map(l => ({ value: l.id, label: l.label }))} value={editMove.type === 'to-dock' ? editMove.to_location : editMove.from_location} onChange={v => setEditMove(p => editMove.type === 'to-dock' ? { ...p, to_location: v } : { ...p, from_location: v })} />
+          )}
+          <Input label="Requested Trailer Type" options={[{ value: '', label: '— None —' }, ...TRAILER_TYPES.map(t => ({ value: t, label: t }))]} value={editMove.requested_trailer_type || ''} onChange={v => setEditMove(p => ({ ...p, requested_trailer_type: v }))} />
+          <Input label="Notes" value={editMove.notes || ''} onChange={v => setEditMove(p => ({ ...p, notes: v }))} placeholder="Optional notes..." />
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+            <Btn variant="secondary" onClick={() => setEditMove(null)}>Cancel</Btn>
+            <Btn onClick={handleSaveEditMove}>💾 Save Changes</Btn>
           </div>
         </div>}
       </Modal>

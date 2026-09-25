@@ -8,6 +8,7 @@ const MOVE_TYPES = [
   { id: 'to-dock', label: 'To Dock', icon: '🏗️', desc: 'Bring a trailer to a dock' },
   { id: 'from-dock', label: 'From Dock', icon: '🔄', desc: 'Pull a trailer from a dock' },
   { id: 'yard-move', label: 'Yard Move', icon: '📦', desc: 'Relocate a trailer in the yard' },
+  { id: 'dock-adjust', label: 'Dock Adjust', icon: '🔧', desc: 'Reposition trailer for dock plate' },
 ];
 const mtl = id => MOVE_TYPES.find(m => m.id === id)?.label ?? id;
 const mti = id => MOVE_TYPES.find(m => m.id === id)?.icon ?? '📦';
@@ -365,19 +366,19 @@ function AppShell({ currentUser, onLogout }) {
     }
     const moveData = {
       type: nm.type,
-      trailer_number: '', // hostler fills this in
+      trailer_number: nm.type === 'dock-adjust' ? nm.trailerNumber : '', // dock-adjust has trailer # upfront, others hostler fills in
       trailer_type: nm.trailerType || '',
-      from_location: nm.type === 'from-dock' ? nm.dock : null,
-      to_location: nm.type === 'to-dock' ? nm.dock : null,
+      from_location: nm.type === 'from-dock' ? nm.dock : (nm.type === 'dock-adjust' ? nm.dock : null),
+      to_location: nm.type === 'to-dock' ? nm.dock : (nm.type === 'dock-adjust' ? nm.dock : null),
       requested_by: currentUser.name, // LOCKED to current user
       requested_by_user: currentUser.id,
       priority: nm.priority,
-      notes: nm.notes,
+      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : nm.notes,
       requested_trailer_type: nm.type === 'to-dock' ? nm.trailerType : (nm.requestBackType || ''),
     };
     await db.createMove(moveData);
     setShowNewMove(false);
-    setNm({ type: 'to-dock', dock: '', trailerType: '', requestBackType: '', priority: 'normal', notes: '' });
+    setNm({ type: 'to-dock', dock: '', trailerType: '', trailerNumber: '', requestBackType: '', priority: 'normal', notes: '' });
     db.fetchMoves().then(r => setMoves(r.data));
   };
 
@@ -412,6 +413,11 @@ function AppShell({ currentUser, onLogout }) {
       updates.trailer_type = gtt(cmFields.trailerNumber) || '';
       updates.from_location = cmFields.fromSpot;
       updates.to_location = cmFields.yardSpot;
+    } else if (m.type === 'dock-adjust') {
+      // Trailer stays at the same dock — no location changes needed
+      updates.trailer_number = m.trailer_number;
+      updates.to_location = m.to_location; // same dock
+      updates.from_location = m.from_location; // same dock
     }
     await db.completeMove(m.id, updates);
 
@@ -601,28 +607,30 @@ function AppShell({ currentUser, onLogout }) {
   // ─── RENDER: VIEW DOCKS ───────────────────────────────────────
   const renderDocks = () => {
     const at = lid => trailers.find(t => t.location_id === lid);
+    // Only show numbered docks (D001-D064), not special docks (BF1, KD1, RD1, RD2, TATERS1)
+    const numberedDocks = dockLocs.filter(d => /^D\d{3}$/.test(d.id));
     // Get pending/active moves targeting each dock
     const movesForDock = (dockId) => moves.filter(m =>
       (m.status === 'pending' || m.status === 'in-progress') &&
       ((m.type === 'to-dock' && m.to_location === dockId) || (m.type === 'from-dock' && m.from_location === dockId))
     );
-    const occupied = dockLocs.filter(d => at(d.id)).length;
-    const oos = dockLocs.filter(d => d.active === false).length;
+    const occupied = numberedDocks.filter(d => at(d.id)).length;
+    const oos = numberedDocks.filter(d => d.active === false).length;
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Stats row */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 14 }}>
-          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Total Docks</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ac, marginTop: 4 }}>{dockLocs.length}</div></Card>
-          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Occupied</div><div style={{ fontSize: 24, fontWeight: 800, color: T.in, marginTop: 4 }}>{occupied}<span style={{ fontSize: 13, color: T.td, marginLeft: 6 }}>({dockLocs.length ? Math.round(occupied / dockLocs.length * 100) : 0}%)</span></div></Card>
-          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Empty</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ok, marginTop: 4 }}>{dockLocs.length - occupied - oos}</div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Total Docks</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ac, marginTop: 4 }}>{numberedDocks.length}</div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Occupied</div><div style={{ fontSize: 24, fontWeight: 800, color: T.in, marginTop: 4 }}>{occupied}<span style={{ fontSize: 13, color: T.td, marginLeft: 6 }}>({numberedDocks.length ? Math.round(occupied / numberedDocks.length * 100) : 0}%)</span></div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Empty</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ok, marginTop: 4 }}>{numberedDocks.length - occupied - oos}</div></Card>
           <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Out of Service</div><div style={{ fontSize: 24, fontWeight: 800, color: T.dg, marginTop: 4 }}>{oos}</div></Card>
         </div>
 
         {/* Dock grid */}
         <Card style={{ padding: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(auto-fill,minmax(200px,1fr))', gap: 10 }}>
-            {dockLocs.sort((a, b) => a.id.localeCompare(b.id)).map(dock => {
+            {numberedDocks.sort((a, b) => a.id.localeCompare(b.id)).map(dock => {
               const tr = at(dock.id);
               const isOOS = dock.active === false;
               const dockMoves = movesForDock(dock.id);
@@ -1305,11 +1313,19 @@ function AppShell({ currentUser, onLogout }) {
           </div>
 
           {nm.type !== 'yard-move' && (
-            <Input label={nm.type === 'to-dock' ? 'Destination Dock' : 'Source Dock'} options={dockLocs.map(l => ({ value: l.id, label: l.label }))} value={nm.dock} onChange={v => setNm(p => ({ ...p, dock: v }))} />
+            <Input label={nm.type === 'dock-adjust' ? 'Dock to Adjust' : nm.type === 'to-dock' ? 'Destination Dock' : 'Source Dock'} options={dockLocs.map(l => ({ value: l.id, label: l.label }))} value={nm.dock} onChange={v => setNm(p => ({ ...p, dock: v }))} />
+          )}
+
+          {nm.type === 'dock-adjust' && (
+            <Input label="Trailer # at Dock" value={nm.trailerNumber || ''} onChange={v => setNm(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
           )}
 
           {nm.type === 'yard-move' && (
             <div style={{ padding: '10px 14px', background: T.in + '15', borderRadius: 8, fontSize: 12, color: T.in }}>ℹ️ Hostler will input trailer #, from location, and to location when completing this move.</div>
+          )}
+
+          {nm.type === 'dock-adjust' && (
+            <div style={{ padding: '10px 14px', background: T.wn + '15', borderRadius: 8, fontSize: 12, color: T.wn }}>🔧 Trailer stays at the dock — hostler will reposition it so the dock plate can extend properly.</div>
           )}
 
           {nm.type === 'to-dock' && (
@@ -1329,7 +1345,7 @@ function AppShell({ currentUser, onLogout }) {
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <Btn variant="secondary" onClick={() => setShowNewMove(false)}>Cancel</Btn>
-            <Btn onClick={handleCreateMove} disabled={nm.type !== 'yard-move' && !nm.dock}>Submit Request</Btn>
+            <Btn onClick={handleCreateMove} disabled={(nm.type !== 'yard-move' && !nm.dock) || (nm.type === 'dock-adjust' && !nm.trailerNumber)}>Submit Request</Btn>
           </div>
         </div>
       </Modal>
@@ -1339,8 +1355,9 @@ function AppShell({ currentUser, onLogout }) {
         {completeModal && <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ padding: 14, background: T.sa, borderRadius: 8 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}><span style={{ fontSize: 18 }}>{mti(completeModal.type)}</span><strong>{mtl(completeModal.type)}</strong></div>
-            {completeModal.type !== 'yard-move' && <div style={{ fontSize: 13, color: T.tm }}>Dock: <strong style={{ color: T.tx }}>{locLabel(completeModal.type === 'to-dock' ? completeModal.to_location : completeModal.from_location)}</strong></div>}
+            {completeModal.type !== 'yard-move' && <div style={{ fontSize: 13, color: T.tm }}>Dock: <strong style={{ color: T.tx }}>{locLabel(completeModal.type === 'to-dock' || completeModal.type === 'dock-adjust' ? completeModal.to_location : completeModal.from_location)}</strong></div>}
             {completeModal.type === 'yard-move' && <div style={{ fontSize: 13, color: T.tm }}>Relocate a trailer within the yard</div>}
+            {completeModal.type === 'dock-adjust' && completeModal.trailer_number && <div style={{ fontSize: 13, color: T.tm, marginTop: 4 }}>Trailer: <strong style={{ color: T.tx, fontFamily: "'JetBrains Mono', monospace" }}>{completeModal.trailer_number}</strong></div>}
             {completeModal.requested_trailer_type && <div style={{ fontSize: 13, color: T.tm, marginTop: 4 }}>Requested type: <Badge color={T.in}>{completeModal.requested_trailer_type}</Badge></div>}
           </div>
 
@@ -1360,9 +1377,15 @@ function AppShell({ currentUser, onLogout }) {
             {cmFields.trailerNumber && trailerMap[cmFields.trailerNumber] && <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Found: {trailerMap[cmFields.trailerNumber].type} — {trailerMap[cmFields.trailerNumber].status} at {locLabel(trailerMap[cmFields.trailerNumber].location_id)}</div>}
           </>}
 
+          {completeModal.type === 'dock-adjust' && (
+            <div style={{ padding: '12px 14px', background: T.wn + '15', borderRadius: 8, fontSize: 13, color: T.wn }}>
+              🔧 Reposition trailer <strong>{completeModal.trailer_number}</strong> at dock so the dock plate can extend. Trailer stays at the same dock when complete.
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <Btn variant="secondary" onClick={() => setCompleteModal(null)}>Back</Btn>
-            <Btn variant="success" onClick={handleCompleteMove} disabled={!cmFields.trailerNumber}>✓ Complete Move</Btn>
+            <Btn variant="success" onClick={handleCompleteMove} disabled={completeModal.type !== 'dock-adjust' && !cmFields.trailerNumber}>✓ Complete Move</Btn>
           </div>
         </div>}
       </Modal>

@@ -279,10 +279,10 @@ function AppShell({ currentUser, onLogout }) {
 
   // Screen access controls (admin-configurable, stored in localStorage)
   const DEFAULT_ACCESS = {
-    admin: ['dashboard', 'moves', 'trailers', 'yard', 'hostler', 'analytics', 'guard', 'locations', 'settings', 'users'],
-    manager: ['dashboard', 'moves', 'trailers', 'yard', 'analytics', 'guard', 'users'],
-    warehouse: ['moves', 'trailers', 'yard'],
-    hostler: ['hostler', 'yard'],
+    admin: ['dashboard', 'moves', 'trailers', 'docks', 'yard', 'hostler', 'analytics', 'guard', 'locations', 'settings', 'users'],
+    manager: ['dashboard', 'moves', 'trailers', 'docks', 'yard', 'analytics', 'guard', 'users'],
+    warehouse: ['moves', 'trailers', 'docks', 'yard'],
+    hostler: ['hostler', 'docks', 'yard'],
     guard: ['guard'],
   };
   const [screenAccess, setScreenAccess] = useState(() => {
@@ -597,6 +597,90 @@ function AppShell({ currentUser, onLogout }) {
       </Card>
     </div>
   );
+
+  // ─── RENDER: VIEW DOCKS ───────────────────────────────────────
+  const renderDocks = () => {
+    const at = lid => trailers.find(t => t.location_id === lid);
+    // Get pending/active moves targeting each dock
+    const movesForDock = (dockId) => moves.filter(m =>
+      (m.status === 'pending' || m.status === 'in-progress') &&
+      ((m.type === 'to-dock' && m.to_location === dockId) || (m.type === 'from-dock' && m.from_location === dockId))
+    );
+    const occupied = dockLocs.filter(d => at(d.id)).length;
+    const oos = dockLocs.filter(d => d.active === false).length;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Stats row */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 14 }}>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Total Docks</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ac, marginTop: 4 }}>{dockLocs.length}</div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Occupied</div><div style={{ fontSize: 24, fontWeight: 800, color: T.in, marginTop: 4 }}>{occupied}<span style={{ fontSize: 13, color: T.td, marginLeft: 6 }}>({dockLocs.length ? Math.round(occupied / dockLocs.length * 100) : 0}%)</span></div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Empty</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ok, marginTop: 4 }}>{dockLocs.length - occupied - oos}</div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Out of Service</div><div style={{ fontSize: 24, fontWeight: 800, color: T.dg, marginTop: 4 }}>{oos}</div></Card>
+        </div>
+
+        {/* Dock grid */}
+        <Card style={{ padding: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(auto-fill,minmax(200px,1fr))', gap: 10 }}>
+            {dockLocs.sort((a, b) => a.id.localeCompare(b.id)).map(dock => {
+              const tr = at(dock.id);
+              const isOOS = dock.active === false;
+              const dockMoves = movesForDock(dock.id);
+              const hasPending = dockMoves.some(m => m.status === 'pending');
+              const hasActive = dockMoves.some(m => m.status === 'in-progress');
+              const borderColor = isOOS ? T.dg : tr ? T.in : T.ok;
+
+              return (
+                <div key={dock.id} onClick={() => setSelectedYardLoc({ loc: dock, trailer: tr })} style={{
+                  padding: 12, borderRadius: 8,
+                  background: isOOS ? T.dg + '08' : tr ? T.in + '10' : T.ok + '08',
+                  border: `1.5px solid ${borderColor}44`,
+                  cursor: 'pointer', opacity: isOOS ? 0.5 : 1,
+                  transition: 'transform 0.1s',
+                }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.02)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontWeight: 800, fontSize: 14, color: borderColor, fontFamily: "'JetBrains Mono', monospace" }}>{dock.label}</span>
+                    {isOOS && <Badge color={T.dg} small>OOS</Badge>}
+                    {!isOOS && hasPending && <Badge color={T.wn} small>PENDING</Badge>}
+                    {!isOOS && hasActive && <Badge color={T.in} small>ACTIVE</Badge>}
+                  </div>
+                  {tr ? (
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: T.tx, fontFamily: "'JetBrains Mono', monospace" }}>{tr.number}</div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                        {tr.type && <Badge color={T.in} small>{tr.type}</Badge>}
+                        {tr.status && <Badge color={tr.status === 'Loaded' ? T.ok : tr.status === 'Empty' ? T.td : T.wn} small>{tr.status}</Badge>}
+                      </div>
+                      {tr.carrier && <div style={{ fontSize: 10, color: T.td, marginTop: 4 }}>{tr.carrier}</div>}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: isOOS ? T.dg : T.ok, fontWeight: 600 }}>
+                      {isOOS ? '⛔ Out of Service' : '— Empty —'}
+                    </div>
+                  )}
+                  {dockMoves.length > 0 && !isOOS && (
+                    <div style={{ marginTop: 6, borderTop: `1px solid ${T.bd}33`, paddingTop: 6 }}>
+                      {dockMoves.map(m => (
+                        <div key={m.id} style={{ fontSize: 10, color: T.tm, display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <span>{mti(m.type)}</span>
+                          <span>{mtl(m.type)}</span>
+                          <Badge color={sc(m.status)} small>{m.status}</Badge>
+                          {m.requested_trailer_type && <span style={{ color: T.td }}>({m.requested_trailer_type})</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      </div>
+    );
+  };
 
   // ─── RENDER: YARD MAP ───────────────────────────────────────
   const renderYard = () => {
@@ -1110,6 +1194,7 @@ function AppShell({ currentUser, onLogout }) {
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'moves', label: 'Move Requests', icon: '🔄', count: pending.length },
     { id: 'trailers', label: 'Trailer Inventory', icon: '🚛' },
+    { id: 'docks', label: 'View Docks', icon: '🏗️' },
     { id: 'yard', label: 'Yard Map', icon: '🗺️' },
     { id: 'hostler', label: 'Hostler View', icon: '👷' },
     { id: 'analytics', label: 'Analytics', icon: '📈' },
@@ -1195,6 +1280,7 @@ function AppShell({ currentUser, onLogout }) {
           {view === 'dashboard' && renderDash()}
           {view === 'moves' && renderMoves()}
           {view === 'trailers' && renderTrailers()}
+          {view === 'docks' && renderDocks()}
           {view === 'yard' && renderYard()}
           {view === 'hostler' && renderHostler()}
           {view === 'analytics' && renderAnalytics()}

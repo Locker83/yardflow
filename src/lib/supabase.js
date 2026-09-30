@@ -152,6 +152,14 @@ export async function completeMove(moveId, hostlerUpdates = {}) {
   // Update trailer location (or create if trailer doesn't exist yet)
   const tNum = hostlerUpdates.trailer_number || data?.trailer_number;
   const tLoc = hostlerUpdates.to_location || data?.to_location;
+  const moveType = data?.type;
+
+  // For from-dock: move trailer to "Yard" if no specific yard spot was given
+  if (tNum && !tLoc && moveType === 'from-dock') {
+    const { data: existing } = await supabase.from('trailers').select('id').eq('number', tNum).maybeSingle();
+    if (existing) await updateTrailerByNumber(tNum, { location_id: 'Yard' });
+  }
+
   if (tNum && tLoc) {
     const { data: existing } = await supabase.from('trailers').select('id').eq('number', tNum).maybeSingle();
     if (existing) {

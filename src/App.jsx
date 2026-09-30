@@ -251,7 +251,7 @@ function AppShell({ currentUser, onLogout }) {
   const [editLoc, setEditLoc] = useState(null);
   const [locFilter, setLocFilter] = useState('');
   // Move form: type is 'to-dock' or 'from-dock'
-  const [nm, setNm] = useState({ type: 'to-dock', dock: '', trailerType: '', loadStatus: '', priority: 'normal', notes: '' });
+  const [nm, setNm] = useState({ type: 'to-dock', dock: '', trailerType: '', loadStatus: '', direction: '', trailerNumber: '', priority: 'normal', notes: '' });
   const [nt, setNt] = useState({ number: '', type: 'Dry Van', status: 'Empty', location: '', carrier: '', notes: '' });
   const [newUser, setNewUser] = useState({ username: '', password: '', name: '', email: '', role: 'hostler', color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0') });
   const [newLoc, setNewLoc] = useState({ id: '', label: '', type: 'dock', zone: '' });
@@ -388,19 +388,19 @@ function AppShell({ currentUser, onLogout }) {
     }
     const moveData = {
       type: nm.type,
-      trailer_number: nm.type === 'dock-adjust' ? nm.trailerNumber : '', // dock-adjust has trailer # upfront, others hostler fills in
+      trailer_number: nm.type === 'dock-adjust' ? nm.trailerNumber : (nm.type === 'to-dock' && nm.direction === 'inbound' ? nm.trailerNumber : ''),
       trailer_type: nm.trailerType || '',
       from_location: nm.type === 'from-dock' ? nm.dock : (nm.type === 'dock-adjust' ? nm.dock : null),
       to_location: nm.type === 'to-dock' ? nm.dock : (nm.type === 'dock-adjust' ? nm.dock : null),
       requested_by: currentUser.name, // LOCKED to current user
       requested_by_user: currentUser.id,
       priority: nm.priority,
-      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : [nm.loadStatus ? `[${nm.loadStatus.toUpperCase()}]` : '', nm.notes].filter(Boolean).join(' '),
-      requested_trailer_type: nm.type === 'to-dock' ? nm.trailerType : (nm.requestBackType || ''),
+      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : [nm.direction ? `[${nm.direction.toUpperCase()}]` : '', nm.notes].filter(Boolean).join(' '),
+      requested_trailer_type: nm.type === 'to-dock' && nm.direction !== 'inbound' ? nm.trailerType : (nm.requestBackType || ''),
     };
     await db.createMove(moveData);
     setShowNewMove(false);
-    setNm({ type: 'to-dock', dock: '', trailerType: '', trailerNumber: '', loadStatus: '', requestBackType: '', priority: 'normal', notes: '' });
+    setNm({ type: 'to-dock', dock: '', trailerType: '', trailerNumber: '', loadStatus: '', direction: '', requestBackType: '', priority: 'normal', notes: '' });
     db.fetchMoves().then(r => setMoves(r.data));
   };
 
@@ -1327,7 +1327,7 @@ function AppShell({ currentUser, onLogout }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             {MOVE_TYPES.map(mt => (
-              <button key={mt.id} onClick={() => setNm(p => ({ ...p, type: mt.id, dock: '', trailerType: '', requestBackType: '' }))}
+              <button key={mt.id} onClick={() => setNm(p => ({ ...p, type: mt.id, dock: '', trailerType: '', trailerNumber: '', direction: '', requestBackType: '' }))}
                 style={{ flex: 1, padding: '14px 16px', borderRadius: 8, background: nm.type === mt.id ? T.ac + '22' : T.sa, border: `2px solid ${nm.type === mt.id ? T.ac : T.bd}`, color: nm.type === mt.id ? T.ac : T.tm, cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 700, textAlign: 'center' }}>
                 <div style={{ fontSize: 24, marginBottom: 4 }}>{mt.icon}</div>{mt.label}
                 <div style={{ fontSize: 10, fontWeight: 400, marginTop: 2, opacity: 0.7 }}>{mt.desc}</div>
@@ -1348,6 +1348,10 @@ function AppShell({ currentUser, onLogout }) {
             }} />
           )}
 
+          {nm.type === 'to-dock' && (
+            <Input label="Dock Activity" options={[{ value: '', label: '— Select —' }, { value: 'inbound', label: '📥 Inbound' }, { value: 'outbound', label: '📤 Outbound' }]} value={nm.direction} onChange={v => setNm(p => ({ ...p, direction: v, trailerType: '', trailerNumber: '' }))} />
+          )}
+
           {nm.type === 'dock-adjust' && (
             <Input label="Trailer # at Dock" value={nm.trailerNumber || ''} onChange={v => setNm(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
           )}
@@ -1360,10 +1364,13 @@ function AppShell({ currentUser, onLogout }) {
             <div style={{ padding: '10px 14px', background: T.wn + '15', borderRadius: 8, fontSize: 12, color: T.wn }}>🔧 Trailer stays at the dock — hostler will reposition it so the dock plate can extend properly.</div>
           )}
 
-          {nm.type === 'to-dock' && (<>
+          {nm.type === 'to-dock' && nm.direction === 'outbound' && (
             <Input label="Trailer Type Needed" options={[{ value: '', label: '— Any Type —' }, ...TRAILER_TYPES.map(t => ({ value: t, label: t }))]} value={nm.trailerType} onChange={v => setNm(p => ({ ...p, trailerType: v }))} />
-            <Input label="Dock Activity" options={[{ value: '', label: '— Select —' }, { value: 'Load', label: '📦 Load' }, { value: 'Unload', label: '📤 Unload' }]} value={nm.loadStatus} onChange={v => setNm(p => ({ ...p, loadStatus: v }))} />
-          </>)}
+          )}
+
+          {nm.type === 'to-dock' && nm.direction === 'inbound' && (
+            <Input label="Inbound Trailer #" options={[{ value: '', label: '— Select Trailer —' }, ...trailers.filter(t => t.location_id && !t.location_id.startsWith('D')).map(t => ({ value: t.number, label: `${t.number} — ${t.type} (${t.status})` }))]} value={nm.trailerNumber || ''} onChange={v => setNm(p => ({ ...p, trailerNumber: v }))} />
+          )}
 
           {nm.type === 'from-dock' && (
             <Input label="Need a Trailer Back? (optional)" options={[{ value: '', label: '— No, just pull —' }, ...TRAILER_TYPES.map(t => ({ value: t, label: t }))]} value={nm.requestBackType || ''} onChange={v => setNm(p => ({ ...p, requestBackType: v }))} />
@@ -1378,7 +1385,7 @@ function AppShell({ currentUser, onLogout }) {
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <Btn variant="secondary" onClick={() => setShowNewMove(false)}>Cancel</Btn>
-            <Btn onClick={handleCreateMove} disabled={(nm.type !== 'yard-move' && !nm.dock) || (nm.type === 'dock-adjust' && !nm.trailerNumber)}>Submit Request</Btn>
+            <Btn onClick={handleCreateMove} disabled={(nm.type !== 'yard-move' && !nm.dock) || (nm.type === 'dock-adjust' && !nm.trailerNumber) || (nm.type === 'to-dock' && !nm.direction) || (nm.type === 'to-dock' && nm.direction === 'inbound' && !nm.trailerNumber)}>Submit Request</Btn>
           </div>
         </div>
       </Modal>

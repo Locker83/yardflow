@@ -157,12 +157,13 @@ export async function completeMove(moveId, hostlerUpdates = {}) {
   const moveType = data?.type;
 
   // For from-dock: clear trailer from the dock (set location_id to null)
-  if (tNum && moveType === 'from-dock') {
-    const { data: existing } = await supabase.from('trailers').select('id').eq('number', tNum).maybeSingle();
-    if (existing) {
-      // If a specific yard spot was given, use it; otherwise null (in the yard, no assigned spot)
-      await updateTrailerByNumber(tNum, { location_id: tLoc || null });
-    }
+  if (moveType === 'from-dock' && tNum) {
+    // Direct update — bypass .single() to avoid silent failures
+    const clearLoc = tLoc || null;
+    const { error: clearErr } = await supabase.from('trailers')
+      .update({ location_id: clearLoc, last_moved: new Date().toISOString() })
+      .eq('number', tNum);
+    if (clearErr) console.error('Failed to clear trailer from dock:', clearErr);
     return { data, error };
   }
 

@@ -359,8 +359,8 @@ function AppShell({ currentUser, onLogout }) {
   const hostlers = useMemo(() => users.filter(u => u.role === 'hostler' && u.active), [users]);
   const trailerMap = useMemo(() => Object.fromEntries(trailers.map(t => [t.number, t])), [trailers]);
   const gtt = useCallback(num => trailerMap[num]?.type ?? '', [trailerMap]);
-  // Extract originally requested trailer # from notes tag [INBOUND #xxx]
-  const getReqNum = notes => { const m = (notes || '').match(/\[INBOUND #([^\]]+)\]/); return m ? m[1] : null; };
+  // Extract originally requested/expected trailer # from notes tags [INBOUND #xxx] or [EXPECTED #xxx]
+  const getReqNum = notes => { const m = (notes || '').match(/\[(?:INBOUND|EXPECTED) #([^\]]+)\]/); return m ? m[1] : null; };
   const dockLocs = useMemo(() => locations.filter(l => l.type === 'dock'), [locations]);
   const yardLocs = useMemo(() => locations.filter(l => l.type === 'yard'), [locations]);
 
@@ -390,14 +390,14 @@ function AppShell({ currentUser, onLogout }) {
     }
     const moveData = {
       type: nm.type,
-      trailer_number: nm.type === 'dock-adjust' ? nm.trailerNumber : (nm.type === 'to-dock' && nm.direction === 'inbound' ? nm.trailerNumber : ''),
+      trailer_number: nm.type === 'dock-adjust' ? nm.trailerNumber : (nm.type === 'to-dock' && nm.direction === 'inbound' ? nm.trailerNumber : (nm.type === 'from-dock' ? (trailers.find(t => t.location_id === nm.dock)?.number || '') : '')),
       trailer_type: nm.trailerType || '',
       from_location: nm.type === 'from-dock' ? nm.dock : (nm.type === 'dock-adjust' ? nm.dock : null),
       to_location: nm.type === 'to-dock' ? nm.dock : (nm.type === 'dock-adjust' ? nm.dock : null),
       requested_by: currentUser.name, // LOCKED to current user
       requested_by_user: currentUser.id,
       priority: nm.priority,
-      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : [nm.direction === 'inbound' ? `[INBOUND #${nm.trailerNumber}]` : (nm.direction ? `[${nm.direction.toUpperCase()}]` : ''), nm.notes].filter(Boolean).join(' '),
+      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : [nm.direction === 'inbound' ? `[INBOUND #${nm.trailerNumber}]` : (nm.direction ? `[${nm.direction.toUpperCase()}]` : ''), nm.type === 'from-dock' ? (() => { const dockTr = trailers.find(t => t.location_id === nm.dock); return dockTr ? `[EXPECTED #${dockTr.number}]` : ''; })() : '', nm.notes].filter(Boolean).join(' '),
       requested_trailer_type: nm.type === 'to-dock' && nm.direction !== 'inbound' ? nm.trailerType : (nm.requestBackType || ''),
     };
     await db.createMove(moveData);
@@ -1404,6 +1404,7 @@ function AppShell({ currentUser, onLogout }) {
             {completeModal.type !== 'yard-move' && <div style={{ fontSize: 13, color: T.tm }}>Dock: <strong style={{ color: T.tx }}>{locLabel(completeModal.type === 'to-dock' || completeModal.type === 'dock-adjust' ? completeModal.to_location : completeModal.from_location)}</strong></div>}
             {completeModal.type === 'yard-move' && <div style={{ fontSize: 13, color: T.tm }}>Relocate a trailer within the yard</div>}
             {completeModal.type === 'dock-adjust' && completeModal.trailer_number && <div style={{ fontSize: 13, color: T.tm, marginTop: 4 }}>Trailer: <strong style={{ color: T.tx, fontFamily: "'JetBrains Mono', monospace" }}>{completeModal.trailer_number}</strong></div>}
+            {completeModal.type === 'from-dock' && completeModal.trailer_number && <div style={{ fontSize: 13, color: T.tm, marginTop: 4 }}>Expected trailer: <strong style={{ color: T.in, fontFamily: "'JetBrains Mono', monospace" }}>{completeModal.trailer_number}</strong></div>}
             {completeModal.requested_trailer_type && <div style={{ fontSize: 13, color: T.tm, marginTop: 4 }}>Requested type: <Badge color={T.in}>{completeModal.requested_trailer_type}</Badge></div>}
           </div>
 

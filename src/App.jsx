@@ -425,10 +425,9 @@ function AppShell({ currentUser, onLogout }) {
       updates.from_location = cmFields.yardSpot;
       updates.to_location = m.to_location; // dock was set by warehouse
     } else if (m.type === 'from-dock') {
-      // Hostler fills: where they dropped the trailer (yard spot)
-      updates.to_location = cmFields.yardSpot;
-      // trailer_number stays from original (trailer at dock) or hostler can specify
-      if (cmFields.trailerNumber) updates.trailer_number = cmFields.trailerNumber;
+      // Hostler fills: trailer # and where they dropped it
+      updates.to_location = cmFields.yardSpot || 'Yard';
+      updates.trailer_number = cmFields.trailerNumber;
     } else if (m.type === 'yard-move') {
       // Hostler fills: trailer #, from location, to location
       updates.trailer_number = cmFields.trailerNumber;

@@ -1369,7 +1369,7 @@ function AppShell({ currentUser, onLogout }) {
           )}
 
           {nm.type === 'to-dock' && nm.direction === 'inbound' && (
-            <Input label="Inbound Trailer #" options={[{ value: '', label: '— Select Trailer —' }, ...trailers.filter(t => t.location_id && !t.location_id.startsWith('D')).map(t => ({ value: t.number, label: `${t.number} — ${t.type} (${t.status})` }))]} value={nm.trailerNumber || ''} onChange={v => setNm(p => ({ ...p, trailerNumber: v }))} />
+            <Input label="Inbound Trailer #" value={nm.trailerNumber || ''} onChange={v => setNm(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 53-1234" />
           )}
 
           {nm.type === 'from-dock' && (

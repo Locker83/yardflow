@@ -359,6 +359,8 @@ function AppShell({ currentUser, onLogout }) {
   const hostlers = useMemo(() => users.filter(u => u.role === 'hostler' && u.active), [users]);
   const trailerMap = useMemo(() => Object.fromEntries(trailers.map(t => [t.number, t])), [trailers]);
   const gtt = useCallback(num => trailerMap[num]?.type ?? '', [trailerMap]);
+  // Extract originally requested trailer # from notes tag [INBOUND #xxx]
+  const getReqNum = notes => { const m = (notes || '').match(/\[INBOUND #([^\]]+)\]/); return m ? m[1] : null; };
   const dockLocs = useMemo(() => locations.filter(l => l.type === 'dock'), [locations]);
   const yardLocs = useMemo(() => locations.filter(l => l.type === 'yard'), [locations]);
 
@@ -395,7 +397,7 @@ function AppShell({ currentUser, onLogout }) {
       requested_by: currentUser.name, // LOCKED to current user
       requested_by_user: currentUser.id,
       priority: nm.priority,
-      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : [nm.direction ? `[${nm.direction.toUpperCase()}]` : '', nm.notes].filter(Boolean).join(' '),
+      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : [nm.direction === 'inbound' ? `[INBOUND #${nm.trailerNumber}]` : (nm.direction ? `[${nm.direction.toUpperCase()}]` : ''), nm.notes].filter(Boolean).join(' '),
       requested_trailer_type: nm.type === 'to-dock' && nm.direction !== 'inbound' ? nm.trailerType : (nm.requestBackType || ''),
     };
     await db.createMove(moveData);
@@ -425,9 +427,9 @@ function AppShell({ currentUser, onLogout }) {
       updates.from_location = cmFields.yardSpot;
       updates.to_location = m.to_location; // dock was set by warehouse
     } else if (m.type === 'from-dock') {
-      // Hostler fills: trailer # and where they dropped it
-      updates.to_location = cmFields.yardSpot || 'Yard';
+      // Hostler fills: trailer # — pulled from dock to yard
       updates.trailer_number = cmFields.trailerNumber;
+      if (cmFields.yardSpot) updates.to_location = cmFields.yardSpot;
     } else if (m.type === 'yard-move') {
       // Hostler fills: trailer #, from location, to location
       updates.trailer_number = cmFields.trailerNumber;
@@ -440,6 +442,11 @@ function AppShell({ currentUser, onLogout }) {
       updates.to_location = m.to_location; // same dock
       updates.from_location = m.from_location; // same dock
     }
+    // Flag trailer # mismatch in notes if hostler entered a different number than requested
+    if (m.trailer_number && cmFields.trailerNumber && m.trailer_number !== cmFields.trailerNumber) {
+      updates.notes = (m.notes || '') + ` [MISMATCH: requested #${m.trailer_number}, actual #${cmFields.trailerNumber}]`;
+    }
+
     await db.completeMove(m.id, updates);
 
     // If from-dock had a requested type back, auto-create a to-dock move
@@ -578,7 +585,7 @@ function AppShell({ currentUser, onLogout }) {
           {moves.filter(m => m.completed_at).slice(0, 8).map(m => (
             <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: `1px solid ${T.bd}11` }}>
               <span style={{ fontSize: 18 }}>{mti(m.type)}</span>
-              <div style={{ flex: 1 }}><div style={{ fontSize: 13 }}><strong>{userName(m.claimed_by)}</strong> {m.status === 'cancelled' ? 'cancelled' : 'completed'} <strong>{mtl(m.type)}</strong>{m.trailer_number ? <> — <TTag number={m.trailer_number} type={m.trailer_type || gtt(m.trailer_number)} /></> : null}</div><div style={{ fontSize: 11, color: T.td }}>{locLabel(m.from_location)} → {locLabel(m.to_location)}</div></div>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 13 }}><strong>{userName(m.claimed_by)}</strong> {m.status === 'cancelled' ? 'cancelled' : 'completed'} <strong>{mtl(m.type)}</strong>{m.trailer_number ? <> — <TTag number={m.trailer_number} type={m.trailer_type || gtt(m.trailer_number)} /></> : null}{(m.notes||'').includes('[MISMATCH') && <Badge color={T.wn} small>MISMATCH</Badge>}</div><div style={{ fontSize: 11, color: T.td }}>{locLabel(m.from_location)} → {locLabel(m.to_location)}</div></div>
               <div style={{ fontSize: 11, color: T.tm, whiteSpace: 'nowrap' }}>{db.fmtTime(m.completed_at)}</div>
             </div>
           ))}
@@ -597,7 +604,7 @@ function AppShell({ currentUser, onLogout }) {
         <Input options={[{ value: '', label: 'All Statuses' }, { value: 'pending', label: 'Pending' }, { value: 'in-progress', label: 'In Progress' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }]} value={sf} onChange={setSf} style={{ width: 150 }} />
       </div>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <Tbl columns={[{ key: 'mn', label: '#', render: r => r.move_number }, { key: 'p', label: 'Pri', render: r => r.priority === 'urgent' ? <Badge color={T.dg}>URGENT</Badge> : <Badge color={T.td} small>Norm</Badge> }, { key: 't', label: 'Type', render: r => <span>{mti(r.type)} {mtl(r.type)}</span> }, { key: 'dock', label: 'Dock', render: r => locLabel(r.type === 'to-dock' ? r.to_location : r.from_location) }, { key: 'tr', label: 'Trailer', render: r => r.trailer_number ? <TTag number={r.trailer_number} type={r.trailer_type || gtt(r.trailer_number)} /> : <span style={{ color: T.td }}>TBD</span> }, { key: 'rt', label: 'Req. Type', render: r => r.requested_trailer_type ? <Badge color={T.in} small>{r.requested_trailer_type}</Badge> : '—' }, { key: 'cb', label: 'Hostler', render: r => r.claimed_by ? <span><Dot color={userColor(r.claimed_by)} />{userName(r.claimed_by)}</span> : <span style={{ color: T.td }}>—</span> }, { key: 's', label: 'Status', render: r => <Badge color={sc(r.status)}>{r.status}</Badge> }, { key: 'cr', label: 'Requested', render: r => db.fmtTime(r.created_at) }, { key: 'rb', label: 'Req. By', render: r => r.requested_by || '—' }]}
+        <Tbl columns={[{ key: 'mn', label: '#', render: r => r.move_number }, { key: 'p', label: 'Pri', render: r => r.priority === 'urgent' ? <Badge color={T.dg}>URGENT</Badge> : <Badge color={T.td} small>Norm</Badge> }, { key: 't', label: 'Type', render: r => <span>{mti(r.type)} {mtl(r.type)}</span> }, { key: 'dock', label: 'Dock', render: r => locLabel(r.type === 'to-dock' ? r.to_location : r.from_location) }, { key: 'rn', label: 'Req. #', render: r => { const rn = getReqNum(r.notes); return rn ? <span style={{ fontWeight: 700, color: T.in, fontFamily: "'JetBrains Mono',monospace" }}>{rn}</span> : <span style={{ color: T.td }}>—</span>; } }, { key: 'tr', label: 'Actual #', render: r => { const rn = getReqNum(r.notes); const mismatch = rn && r.trailer_number && rn !== r.trailer_number; return r.trailer_number ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><TTag number={r.trailer_number} type={r.trailer_type || gtt(r.trailer_number)} />{mismatch && <span style={{ color: T.wn, fontSize: 14 }} title={`Requested #${rn}`}>⚠️</span>}</span> : <span style={{ color: T.td }}>TBD</span>; } }, { key: 'rt', label: 'Req. Type', render: r => r.requested_trailer_type ? <Badge color={T.in} small>{r.requested_trailer_type}</Badge> : '—' }, { key: 'cb', label: 'Hostler', render: r => r.claimed_by ? <span><Dot color={userColor(r.claimed_by)} />{userName(r.claimed_by)}</span> : <span style={{ color: T.td }}>—</span> }, { key: 's', label: 'Status', render: r => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Badge color={sc(r.status)}>{r.status}</Badge>{(r.notes||'').includes('[MISMATCH') && <Badge color={T.wn} small>⚠ MISMATCH</Badge>}</span> }, { key: 'cr', label: 'Requested', render: r => db.fmtTime(r.created_at) }, { key: 'rb', label: 'Req. By', render: r => r.requested_by || '—' }]}
           data={moves.filter(m => !filter || (m.trailer_number || '').includes(filter) || locLabel(m.from_location).toLowerCase().includes(filter.toLowerCase()) || locLabel(m.to_location).toLowerCase().includes(filter.toLowerCase())).filter(m => !hf || m.claimed_by === hf).filter(m => !sf || m.status === sf)} onRow={r => setSelMove(r)} />
       </Card>
     </div>
@@ -1403,11 +1410,29 @@ function AppShell({ currentUser, onLogout }) {
           {completeModal.type === 'to-dock' && <>
             <Input label="Trailer # You're Bringing" value={cmFields.trailerNumber} onChange={v => setCmFields(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
             {cmFields.trailerNumber && trailerMap[cmFields.trailerNumber] && <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Found: {trailerMap[cmFields.trailerNumber].type} — {trailerMap[cmFields.trailerNumber].status} at {locLabel(trailerMap[cmFields.trailerNumber].location_id)}</div>}
+            {completeModal.trailer_number && cmFields.trailerNumber && completeModal.trailer_number !== cmFields.trailerNumber && (
+              <div style={{ padding: '10px 14px', background: T.wn + '18', border: `1px solid ${T.wn}55`, borderRadius: 8, fontSize: 13, color: T.wn, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
+                <div><strong>Trailer # Mismatch</strong><br/>Request specified <strong style={{ fontFamily: "'JetBrains Mono',monospace" }}>{completeModal.trailer_number}</strong> but you entered <strong style={{ fontFamily: "'JetBrains Mono',monospace" }}>{cmFields.trailerNumber}</strong>.<br/><span style={{ fontSize: 12, opacity: 0.8 }}>You can still complete — this will be flagged for review.</span></div>
+              </div>
+            )}
+            {completeModal.trailer_number && cmFields.trailerNumber && completeModal.trailer_number === cmFields.trailerNumber && (
+              <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Trailer # matches request</div>
+            )}
           </>}
 
           {completeModal.type === 'from-dock' && <>
             <Input label="Trailer # Being Pulled" value={cmFields.trailerNumber} onChange={v => setCmFields(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
             {cmFields.trailerNumber && trailerMap[cmFields.trailerNumber] && <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Found: {trailerMap[cmFields.trailerNumber].type} — {trailerMap[cmFields.trailerNumber].status} at {locLabel(trailerMap[cmFields.trailerNumber].location_id)}</div>}
+            {completeModal.trailer_number && cmFields.trailerNumber && completeModal.trailer_number !== cmFields.trailerNumber && (
+              <div style={{ padding: '10px 14px', background: T.wn + '18', border: `1px solid ${T.wn}55`, borderRadius: 8, fontSize: 13, color: T.wn, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
+                <div><strong>Trailer # Mismatch</strong><br/>Request specified <strong style={{ fontFamily: "'JetBrains Mono',monospace" }}>{completeModal.trailer_number}</strong> but you entered <strong style={{ fontFamily: "'JetBrains Mono',monospace" }}>{cmFields.trailerNumber}</strong>.<br/><span style={{ fontSize: 12, opacity: 0.8 }}>You can still complete — this will be flagged for review.</span></div>
+              </div>
+            )}
+            {completeModal.trailer_number && cmFields.trailerNumber && completeModal.trailer_number === cmFields.trailerNumber && (
+              <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Trailer # matches request</div>
+            )}
             {completeModal.requested_trailer_type && <div style={{ padding: '8px 12px', background: T.in + '15', borderRadius: 6, fontSize: 12, color: T.in }}>ℹ️ A new "To Dock" request for a <strong>{completeModal.requested_trailer_type}</strong> will be auto-created when you complete this.</div>}
           </>}
 

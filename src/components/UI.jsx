@@ -24,9 +24,9 @@ export const Dot = ({color}) => <span style={{display:"inline-block",width:8,hei
 
 export const Card = ({children,style,onClick}) => <div onClick={onClick} style={{background:T.sf,border:`1px solid ${T.bd}`,borderRadius:10,padding:20,cursor:onClick?"pointer":"default",transition:"border-color 0.2s",...style}} onMouseEnter={e=>{if(onClick){e.currentTarget.style.borderColor=T.ac;e.currentTarget.style.boxShadow=`0 0 20px ${T.ag}`}}} onMouseLeave={e=>{if(onClick){e.currentTarget.style.borderColor=T.bd;e.currentTarget.style.boxShadow="none"}}}>{children}</div>;
 
-export const Btn = ({children,variant="primary",onClick,disabled,style:s,small}) => {
+export const Btn = ({children,variant="primary",onClick,disabled,style:s,small,...rest}) => {
   const v={primary:{bg:T.ac,c:"#fff",b:"none"},secondary:{bg:"transparent",c:T.tx,b:`1px solid ${T.bd}`},success:{bg:T.ok,c:"#fff",b:"none"},danger:{bg:T.dg,c:"#fff",b:"none"},ghost:{bg:"transparent",c:T.tm,b:"none"}}[variant];
-  return <button onClick={onClick} disabled={disabled} style={{display:"inline-flex",alignItems:"center",gap:6,padding:small?"6px 12px":"10px 20px",borderRadius:6,fontSize:small?12:13,fontWeight:600,cursor:disabled?"not-allowed":"pointer",opacity:disabled?0.5:1,background:v.bg,color:v.c,border:v.b,transition:"all 0.15s",fontFamily:"inherit",...s}}>{children}</button>;
+  return <button onClick={onClick} disabled={disabled} {...rest} style={{display:"inline-flex",alignItems:"center",gap:6,padding:small?"6px 12px":"10px 20px",borderRadius:6,fontSize:small?12:13,fontWeight:600,cursor:disabled?"not-allowed":"pointer",opacity:disabled?0.5:1,background:v.bg,color:v.c,border:v.b,transition:"all 0.15s",fontFamily:"inherit",...s}}>{children}</button>;
 };
 
 export const Input = ({label,value,onChange,placeholder,options,type="text",style:s,...rest}) => (

@@ -963,10 +963,10 @@ function AppShell({ currentUser, onLogout }) {
             const isTargetAdmin = r.role === 'admin';
             const canManage = isAdmin || !isTargetAdmin;
             return (<div style={{ display: 'flex', gap: 6 }}>
-              {canManage && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); setEditUser({ ...r }); }}>✏️</Btn>}
-              {canManage && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); setShowPwReset(r); }}>🔑</Btn>}
-              {canManage && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); handleToggleUser(r.id, r.active); }}>{r.active ? '🚫' : '✅'}</Btn>}
-              {canManage && r.id !== currentUser.id && <Btn small variant="ghost" onClick={e => { e.stopPropagation(); if (confirm(`Delete ${r.name}?`)) handleDeleteUser(r.id); }}>🗑️</Btn>}
+              {canManage && <Btn small variant="ghost" title="Edit User" onClick={e => { e.stopPropagation(); setEditUser({ ...r }); }}>✏️</Btn>}
+              {canManage && <Btn small variant="ghost" title="Reset Password" onClick={e => { e.stopPropagation(); setShowPwReset(r); }}>🔑</Btn>}
+              {canManage && <Btn small variant="ghost" title={r.active ? 'Disable User' : 'Enable User'} onClick={e => { e.stopPropagation(); handleToggleUser(r.id, r.active); }}>{r.active ? '🚫' : '✅'}</Btn>}
+              {canManage && r.id !== currentUser.id && <Btn small variant="ghost" title="Delete User" onClick={e => { e.stopPropagation(); if (confirm(`Delete ${r.name}?`)) handleDeleteUser(r.id); }}>🗑️</Btn>}
               {!canManage && <span style={{ fontSize: 11, color: T.td }}>Admin — no changes</span>}
             </div>);
           } }

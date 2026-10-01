@@ -125,7 +125,20 @@ export async function clearTrailerFromDockById(trailerId, yardSpot) {
 
 // ─── MOVES ──────────────────────────────────────────────────
 export async function fetchMoves() {
-  const { data, error } = await supabase.from('moves').select('*').order('created_at', { ascending: false });
+  // Optimized: fetch only last 30 days for frontend performance
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  const { data, error } = await supabase.from('moves').select('*')
+    .or(`created_at.gte.${since.toISOString()},status.in.(pending,in-progress)`)
+    .order('created_at', { ascending: false });
+  return { data: data || [], error };
+}
+
+export async function fetchMovesRange(startDate, endDate) {
+  const { data, error } = await supabase.from('moves').select('*')
+    .gte('created_at', startDate)
+    .lte('created_at', endDate)
+    .order('created_at', { ascending: false });
   return { data: data || [], error };
 }
 
@@ -229,6 +242,15 @@ export const DEFAULT_SETTINGS = {
   maxMoveMinutes: 30,
   shiftHours: 10,
   autoCreateSendBack: true,
+  // Dock dwell time alert thresholds (hours)
+  dockDwellWarningHours: 4,
+  dockDwellCriticalHours: 8,
+  // Move request aging threshold (minutes)
+  moveAgingMinutes: 30,
+  // Shift schedule configuration
+  shiftStartDay: '05:30',
+  shiftStartNight: '17:30',
+  hostlersPerShift: 2,
 };
 
 export async function fetchSettings() {

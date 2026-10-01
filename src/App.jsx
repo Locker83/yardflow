@@ -272,6 +272,12 @@ function AppShell({ currentUser, onLogout }) {
   const [gateFilter, setGateFilter] = useState('');
   const [archiveCount, setArchiveCount] = useState(0);
   const [selectedYardLoc, setSelectedYardLoc] = useState(null);
+  const [shiftOffset, setShiftOffset] = useState(0); // 0 = current, 1 = previous, 2 = 2 shifts ago, etc.
+  const [showGESBulk, setShowGESBulk] = useState(false);
+  const [gesBulkRows, setGesBulkRows] = useState({}); // { D026: { checked: false, inboundTrailer: '', trailerType: '' }, ... }
+  const [dailyStatsRange, setDailyStatsRange] = useState({ start: new Date(Date.now() - 86400000).toISOString().slice(0, 10), end: new Date(Date.now() - 86400000).toISOString().slice(0, 10) });
+  const [dailyStatsMoves, setDailyStatsMoves] = useState([]);
+  const [dsLoading, setDsLoading] = useState(false);
 
   // Derived from settings
   const TRAILER_TYPES = settings.trailerTypes || db.DEFAULT_SETTINGS.trailerTypes;
@@ -281,7 +287,7 @@ function AppShell({ currentUser, onLogout }) {
 
   // Screen access controls (admin-configurable, stored in localStorage)
   const DEFAULT_ACCESS = {
-    admin: ['dashboard', 'moves', 'trailers', 'docks', 'yard', 'hostler', 'analytics', 'guard', 'locations', 'settings', 'users'],
+    admin: ['dashboard', 'moves', 'trailers', 'docks', 'yard', 'hostler', 'analytics', 'guard', 'dailystats', 'locations', 'settings', 'users'],
     manager: ['dashboard', 'moves', 'trailers', 'docks', 'yard', 'analytics', 'guard', 'users'],
     warehouse: ['moves', 'trailers', 'docks', 'yard'],
     hostler: ['hostler', 'docks', 'yard'],
@@ -377,6 +383,83 @@ function AppShell({ currentUser, onLogout }) {
     const avg = done.length > 0 ? done.reduce((a, m) => a + (new Date(m.completed_at) - new Date(m.started_at)) / 60000, 0) / done.length : 0;
     return { ...h, total: hm.length, completed: done.length, inProgress: hm.filter(m => m.status === 'in-progress').length, avgMinutes: Math.round(avg) };
   }), [moves, hostlers]);
+
+  // ─ Shift Summary calculation
+  const shiftSummary = useMemo(() => {
+    const dayStart = settings.shiftStartDay || '05:30';
+    const nightStart = settings.shiftStartNight || '17:30';
+    const [dH, dM] = dayStart.split(':').map(Number);
+    const [nH, nM] = nightStart.split(':').map(Number);
+
+    // Compute shift boundaries based on offset
+    const now = new Date();
+    const todayDay = new Date(now); todayDay.setHours(dH, dM, 0, 0);
+    const todayNight = new Date(now); todayNight.setHours(nH, nM, 0, 0);
+
+    // Determine current shift boundary
+    let shifts = [];
+    // Generate last 10 shift boundaries to pick from
+    for (let i = -1; i < 10; i++) {
+      const d = new Date(todayDay); d.setDate(d.getDate() - Math.floor(i / 2));
+      if (i % 2 === 0) { d.setHours(nH, nM, 0, 0); d.setDate(d.getDate() - (i / 2)); }
+      else { d.setHours(dH, dM, 0, 0); d.setDate(d.getDate() - Math.floor(i / 2)); }
+    }
+
+    // Simpler approach: build shift start times going backwards
+    shifts = [];
+    let cursor = new Date(now);
+    // Find the current shift start
+    const curDayStart = new Date(cursor); curDayStart.setHours(dH, dM, 0, 0);
+    const curNightStart = new Date(cursor); curNightStart.setHours(nH, nM, 0, 0);
+
+    let currentShiftStart;
+    if (now >= curNightStart) {
+      currentShiftStart = new Date(curNightStart);
+    } else if (now >= curDayStart) {
+      currentShiftStart = new Date(curDayStart);
+    } else {
+      // Before day shift today → still on last night's shift
+      currentShiftStart = new Date(curNightStart); currentShiftStart.setDate(currentShiftStart.getDate() - 1);
+    }
+
+    // Build array of shift starts going backwards
+    let s = new Date(currentShiftStart);
+    for (let i = 0; i < 8; i++) {
+      const isNight = s.getHours() === nH && s.getMinutes() === nM;
+      const end = new Date(s);
+      if (isNight) { end.setDate(end.getDate() + 1); end.setHours(dH, dM, 0, 0); }
+      else { end.setHours(nH, nM, 0, 0); }
+      shifts.push({ start: new Date(s), end, isNight, label: (isNight ? '🌙 Night' : '☀️ Day') + ' ' + s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) });
+      // Go to previous shift
+      if (isNight) { s = new Date(s); s.setHours(dH, dM, 0, 0); }
+      else { s = new Date(s); s.setDate(s.getDate() - 1); s.setHours(nH, nM, 0, 0); }
+    }
+
+    const sel = shifts[shiftOffset] || shifts[0];
+    const shiftMoves = moves.filter(m => {
+      const cat = new Date(m.created_at);
+      return cat >= sel.start && cat < sel.end;
+    });
+    const shiftCompleted = shiftMoves.filter(m => m.status === 'completed');
+    const shiftPending = shiftMoves.filter(m => m.status === 'pending');
+    const shiftMismatches = shiftMoves.filter(m => (m.notes || '').includes('[MISMATCH'));
+
+    // Active hostlers (those who claimed any move during this shift)
+    const activeHostlerIds = [...new Set(shiftMoves.filter(m => m.claimed_by).map(m => m.claimed_by))];
+
+    // Avg completion time
+    const completionTimes = shiftCompleted.filter(m => m.started_at && m.completed_at).map(m => (new Date(m.completed_at) - new Date(m.started_at)) / 60000);
+    const avgCompletion = completionTimes.length > 0 ? Math.round(completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length) : 0;
+
+    // Moves/hr
+    const shiftElapsedHrs = Math.max(0.1, (Math.min(now, sel.end) - sel.start) / 3600000);
+    const movesPerHour = shiftCompleted.length > 0 ? (shiftCompleted.length / shiftElapsedHrs).toFixed(1) : '0.0';
+
+    // Dock snapshot
+    const dockOccupied = dockLocs.filter(d => trailers.some(t => t.location_id === d.id)).length;
+
+    return { shifts, sel, shiftMoves, shiftCompleted, shiftPending, shiftMismatches, activeHostlerIds, avgCompletion, movesPerHour, dockOccupied, dockTotal: dockLocs.length };
+  }, [moves, settings, shiftOffset, dockLocs, trailers]);
 
   // ─ Actions: Create Move (new flow)
   const handleCreateMove = async () => {
@@ -580,6 +663,55 @@ function AppShell({ currentUser, onLogout }) {
   // ─── RENDER: DASHBOARD ──────────────────────────────────────
   const renderDash = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Shift Summary */}
+      <Card>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>📊 Shift Summary</h3>
+          <select value={shiftOffset} onChange={e => setShiftOffset(Number(e.target.value))} style={{ padding: '6px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 13, fontFamily: 'inherit', cursor: 'pointer' }}>
+            {shiftSummary.shifts.map((s, i) => <option key={i} value={i}>{i === 0 ? `${s.label} (Current)` : s.label}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12 }}>
+          <div style={{ padding: 12, borderRadius: 8, background: T.ok + '10' }}>
+            <div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Moves Completed</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: T.ok, marginTop: 2 }}>{shiftSummary.shiftCompleted.length}</div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 8, background: T.in + '10' }}>
+            <div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Hostlers Active</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: T.in, marginTop: 2 }}>{shiftSummary.activeHostlerIds.length}<span style={{ fontSize: 12, color: T.td, marginLeft: 4 }}>/ {settings.hostlersPerShift}</span></div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 8, background: T.ac + '10' }}>
+            <div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Avg Completion</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: T.ac, marginTop: 2 }}>{shiftSummary.avgCompletion}<span style={{ fontSize: 12, color: T.td, marginLeft: 2 }}>min</span></div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 8, background: T.pp + '10' }}>
+            <div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Moves/Hour</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: T.pp, marginTop: 2 }}>{shiftSummary.movesPerHour}</div>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginTop: 12 }}>
+          <div style={{ padding: 12, borderRadius: 8, background: T.wn + '10' }}>
+            <div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Pending Carryover</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: T.wn, marginTop: 2 }}>{shiftSummary.shiftPending.length}</div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 8, background: (shiftSummary.shiftMismatches.length > 0 ? T.dg : T.ok) + '10' }}>
+            <div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Mismatches</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: shiftSummary.shiftMismatches.length > 0 ? T.dg : T.ok, marginTop: 2 }}>{shiftSummary.shiftMismatches.length}</div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 8, background: T.in + '08' }}>
+            <div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Dock Snapshot</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: T.in, marginTop: 2 }}>{shiftSummary.dockOccupied}<span style={{ fontSize: 12, color: T.td, marginLeft: 2 }}>/ {shiftSummary.dockTotal}</span></div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 8, background: T.ac + '08' }}>
+            <div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Total Requests</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: T.ac, marginTop: 2 }}>{shiftSummary.shiftMoves.length}</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 10, fontSize: 11, color: T.td }}>
+          {shiftSummary.sel.label} · {shiftSummary.sel.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {shiftSummary.sel.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+        </div>
+      </Card>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 14 }}>
         {[{ l: 'Pending Moves', v: pending.length, c: T.wn, i: '⏳' }, { l: 'In Progress', v: inProg.length, c: T.in, i: '🔄' }, { l: 'Completed Today', v: completedToday.length, c: T.ok, i: '✅' }, { l: 'Dock Usage', v: `${dkO.p}%`, s: `${dkO.o}/${dkO.t}`, c: T.ac, i: '🏗️' }, { l: 'Yard Usage', v: `${ydO.p}%`, s: `${ydO.o}/${ydO.t}`, c: T.pp, i: '📦' }, { l: 'Trailers on Site', v: trailers.length, c: T.in, i: '🚛' }].map(k => (
           <Card key={k.l}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}><div><div style={{ fontSize: 11, color: T.tm, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{k.l}</div><div style={{ fontSize: 28, fontWeight: 800, color: k.c, lineHeight: 1 }}>{k.v}</div>{k.s && <div style={{ fontSize: 12, color: T.td, marginTop: 4 }}>{k.s}</div>}</div><span style={{ fontSize: 24 }}>{k.i}</span></div></Card>
@@ -589,7 +721,7 @@ function AppShell({ currentUser, onLogout }) {
         <Card style={{ overflow: 'hidden', padding: 0 }}>
           <div style={{ padding: '16px 20px', borderBottom: `1px solid ${T.bd}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Open Move Queue</h3><Btn small onClick={() => setShowNewMove(true)}>+ New Move</Btn></div>
           <div style={{ maxHeight: 340, overflow: 'auto' }}>
-            <Tbl columns={[{ key: 'p', label: 'Pri', render: r => r.priority === 'urgent' ? <Badge color={T.dg}>URGENT</Badge> : <Badge color={T.td} small>Norm</Badge> }, { key: 't', label: 'Type', render: r => <span>{mti(r.type)} {mtl(r.type)}</span> }, { key: 'dock', label: 'Dock', render: r => locLabel(r.type === 'to-dock' ? r.to_location : r.from_location) }, { key: 'rt', label: 'Trailer Type', render: r => r.requested_trailer_type ? <Badge color={T.in} small>{r.requested_trailer_type}</Badge> : '—' }, { key: 'c', label: 'Claimed By', render: r => r.claimed_by ? <span><Dot color={userColor(r.claimed_by)} />{userName(r.claimed_by)}</span> : <span style={{ color: T.wn, fontWeight: 600, fontSize: 11 }}>⬤ Unclaimed</span> }, { key: 's', label: 'Status', render: r => <Badge color={sc(r.status)}>{r.status}</Badge> }]} data={moves.filter(m => m.status !== 'completed' && m.status !== 'cancelled').slice(0, 12)} onRow={r => setSelMove(r)} />
+            <Tbl columns={[{ key: 'p', label: 'Pri', render: r => r.priority === 'urgent' ? <Badge color={T.dg}>URGENT</Badge> : <Badge color={T.td} small>Norm</Badge> }, { key: 't', label: 'Type', render: r => <span>{mti(r.type)} {mtl(r.type)}</span> }, { key: 'dock', label: 'Dock', render: r => locLabel(r.type === 'to-dock' ? r.to_location : r.from_location) }, { key: 'rt', label: 'Trailer Type', render: r => r.requested_trailer_type ? <Badge color={T.in} small>{r.requested_trailer_type}</Badge> : '—' }, { key: 'c', label: 'Claimed By', render: r => r.claimed_by ? <span><Dot color={userColor(r.claimed_by)} />{userName(r.claimed_by)}</span> : <span style={{ color: T.wn, fontWeight: 600, fontSize: 11 }}>⬤ Unclaimed</span> }, { key: 's', label: 'Status', render: r => { const ageMin = r.status === 'pending' && !r.claimed_by ? (Date.now() - new Date(r.created_at).getTime()) / 60000 : 0; return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Badge color={sc(r.status)}>{r.status}</Badge>{ageMin >= settings.moveAgingMinutes && <Badge color="#f59e0b" small>⚠️ {Math.floor(ageMin)}m</Badge>}</span>; } }]} data={moves.filter(m => m.status !== 'completed' && m.status !== 'cancelled').slice(0, 12)} onRow={r => setSelMove(r)} />
           </div>
         </Card>
         <Card style={{ overflow: 'hidden', padding: 0 }}>
@@ -624,7 +756,7 @@ function AppShell({ currentUser, onLogout }) {
         <Input options={[{ value: '', label: 'All Statuses' }, { value: 'pending', label: 'Pending' }, { value: 'in-progress', label: 'In Progress' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }]} value={sf} onChange={setSf} style={{ width: 150 }} />
       </div>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <Tbl columns={[{ key: 'mn', label: '#', render: r => r.move_number }, { key: 'p', label: 'Pri', render: r => r.priority === 'urgent' ? <Badge color={T.dg}>URGENT</Badge> : <Badge color={T.td} small>Norm</Badge> }, { key: 't', label: 'Type', render: r => <span>{mti(r.type)} {mtl(r.type)}</span> }, { key: 'dock', label: 'Dock', render: r => locLabel(r.type === 'to-dock' ? r.to_location : r.from_location) }, { key: 'rn', label: 'Req. #', render: r => { const rn = getReqNum(r.notes); return rn ? <span style={{ fontWeight: 700, color: T.in, fontFamily: "'JetBrains Mono',monospace" }}>{rn}</span> : <span style={{ color: T.td }}>—</span>; } }, { key: 'tr', label: 'Actual #', render: r => { const rn = getReqNum(r.notes); const mismatch = rn && r.trailer_number && rn !== r.trailer_number; return r.trailer_number ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><TTag number={r.trailer_number} type={r.trailer_type || gtt(r.trailer_number)} />{mismatch && <span style={{ color: T.wn, fontSize: 14 }} title={`Requested #${rn}`}>⚠️</span>}</span> : <span style={{ color: T.td }}>TBD</span>; } }, { key: 'rt', label: 'Req. Type', render: r => r.requested_trailer_type ? <Badge color={T.in} small>{r.requested_trailer_type}</Badge> : '—' }, { key: 'cb', label: 'Hostler', render: r => r.claimed_by ? <span><Dot color={userColor(r.claimed_by)} />{userName(r.claimed_by)}</span> : <span style={{ color: T.td }}>—</span> }, { key: 's', label: 'Status', render: r => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Badge color={sc(r.status)}>{r.status}</Badge>{(r.notes||'').includes('[MISMATCH') && <Badge color={T.wn} small>⚠ MISMATCH</Badge>}</span> }, { key: 'cr', label: 'Requested', render: r => db.fmtTime(r.created_at) }, { key: 'rb', label: 'Req. By', render: r => r.requested_by || '—' }]}
+        <Tbl columns={[{ key: 'mn', label: '#', render: r => r.move_number }, { key: 'p', label: 'Pri', render: r => r.priority === 'urgent' ? <Badge color={T.dg}>URGENT</Badge> : <Badge color={T.td} small>Norm</Badge> }, { key: 't', label: 'Type', render: r => <span>{mti(r.type)} {mtl(r.type)}</span> }, { key: 'dock', label: 'Dock', render: r => locLabel(r.type === 'to-dock' ? r.to_location : r.from_location) }, { key: 'rn', label: 'Req. #', render: r => { const rn = getReqNum(r.notes); return rn ? <span style={{ fontWeight: 700, color: T.in, fontFamily: "'JetBrains Mono',monospace" }}>{rn}</span> : <span style={{ color: T.td }}>—</span>; } }, { key: 'tr', label: 'Actual #', render: r => { const rn = getReqNum(r.notes); const mismatch = rn && r.trailer_number && rn !== r.trailer_number; return r.trailer_number ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><TTag number={r.trailer_number} type={r.trailer_type || gtt(r.trailer_number)} />{mismatch && <span style={{ color: T.wn, fontSize: 14 }} title={`Requested #${rn}`}>⚠️</span>}</span> : <span style={{ color: T.td }}>TBD</span>; } }, { key: 'rt', label: 'Req. Type', render: r => r.requested_trailer_type ? <Badge color={T.in} small>{r.requested_trailer_type}</Badge> : '—' }, { key: 'cb', label: 'Hostler', render: r => r.claimed_by ? <span><Dot color={userColor(r.claimed_by)} />{userName(r.claimed_by)}</span> : <span style={{ color: T.td }}>—</span> }, { key: 's', label: 'Status', render: r => { const ageMin = r.status === 'pending' && !r.claimed_by ? (Date.now() - new Date(r.created_at).getTime()) / 60000 : 0; return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Badge color={sc(r.status)}>{r.status}</Badge>{ageMin >= settings.moveAgingMinutes && <Badge color="#f59e0b" small>⚠️ {Math.floor(ageMin)}m</Badge>}{(r.notes||'').includes('[MISMATCH') && <Badge color={T.wn} small>⚠ MISMATCH</Badge>}</span>; } }, { key: 'cr', label: 'Requested', render: r => db.fmtTime(r.created_at) }, { key: 'rb', label: 'Req. By', render: r => r.requested_by || '—' }]}
           data={moves.filter(m => !filter || (m.trailer_number || '').includes(filter) || locLabel(m.from_location).toLowerCase().includes(filter.toLowerCase()) || locLabel(m.to_location).toLowerCase().includes(filter.toLowerCase())).filter(m => !hf || m.claimed_by === hf).filter(m => !sf || m.status === sf)} onRow={r => setSelMove(r)} />
       </Card>
     </div>
@@ -675,6 +807,17 @@ function AppShell({ currentUser, onLogout }) {
           <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Out of Service</div><div style={{ fontSize: 24, fontWeight: 800, color: T.dg, marginTop: 4 }}>{oos}</div></Card>
         </div>
 
+        {/* GES Bulk Request button */}
+        {(role === 'admin' || role === 'manager' || role === 'warehouse') && (
+          <div><Btn onClick={() => {
+            const gesDocks = ['D026','D027','D028','D029','D030','D031','D032','D033','D034','D035','D036','D037','D038','D039','D040','D041','D042','D043','D044','D045'];
+            const rows = {};
+            gesDocks.forEach(id => { rows[id] = { checked: false, inboundTrailer: '', trailerType: '' }; });
+            setGesBulkRows(rows);
+            setShowGESBulk(true);
+          }}>📋 GES Bulk Dock Request</Btn></div>
+        )}
+
         {/* Dock grid */}
         <Card style={{ padding: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(auto-fill,minmax(200px,1fr))', gap: 10 }}>
@@ -684,12 +827,16 @@ function AppShell({ currentUser, onLogout }) {
               const dockMoves = movesForDock(dock.id);
               const hasPending = dockMoves.some(m => m.status === 'pending');
               const hasActive = dockMoves.some(m => m.status === 'in-progress');
-              const borderColor = isOOS ? T.dg : tr ? T.in : T.ok;
+              // Dock dwell time calculation
+              const dwellHours = tr ? (Date.now() - new Date(tr.last_moved || tr.updated_at || tr.created_at).getTime()) / 3600000 : 0;
+              const dwellCritical = tr && dwellHours >= settings.dockDwellCriticalHours;
+              const dwellWarning = tr && !dwellCritical && dwellHours >= settings.dockDwellWarningHours;
+              const borderColor = isOOS ? T.dg : dwellCritical ? '#ef4444' : dwellWarning ? '#f59e0b' : tr ? T.in : T.ok;
 
               return (
                 <div key={dock.id} onClick={() => setSelectedYardLoc({ loc: dock, trailer: tr })} style={{
                   padding: 12, borderRadius: 8,
-                  background: isOOS ? T.dg + '08' : tr ? T.in + '10' : T.ok + '08',
+                  background: isOOS ? T.dg + '08' : dwellCritical ? '#ef444418' : dwellWarning ? '#f59e0b15' : tr ? T.in + '10' : T.ok + '08',
                   border: `1.5px solid ${borderColor}44`,
                   cursor: 'pointer', opacity: isOOS ? 0.5 : 1,
                   transition: 'transform 0.1s',
@@ -700,6 +847,8 @@ function AppShell({ currentUser, onLogout }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, color: borderColor, fontFamily: "'JetBrains Mono', monospace" }}>{dock.label}</span>
                     {isOOS && <Badge color={T.dg} small>OOS</Badge>}
+                    {!isOOS && dwellCritical && <Badge color="#ef4444" small>🔴 {Math.floor(dwellHours)}hr</Badge>}
+                    {!isOOS && dwellWarning && <Badge color="#f59e0b" small>⚠️ {Math.floor(dwellHours)}hr</Badge>}
                     {!isOOS && hasPending && <Badge color={T.wn} small>PENDING</Badge>}
                     {!isOOS && hasActive && <Badge color={T.in} small>ACTIVE</Badge>}
                   </div>
@@ -1113,6 +1262,55 @@ function AppShell({ currentUser, onLogout }) {
       </Card>
 
       <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>⏱️ Dock Dwell Time Alerts</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: T.td }}>Trailers occupying a dock longer than these thresholds will be highlighted on View Docks.</p>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Warning Threshold (hours)</label>
+            <input type="number" min="1" step="0.5" value={settings.dockDwellWarningHours} onChange={e => saveSetting('dockDwellWarningHours', parseFloat(e.target.value) || 1)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Critical Threshold (hours)</label>
+            <input type="number" min="1" step="0.5" value={settings.dockDwellCriticalHours} onChange={e => saveSetting('dockDwellCriticalHours', parseFloat(e.target.value) || 1)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+          </div>
+        </div>
+        <div style={{ marginTop: 14, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 12, color: T.td }}>⚠️ <span style={{ color: '#f59e0b', fontWeight: 600 }}>Yellow</span> after {settings.dockDwellWarningHours}hr</div>
+          <div style={{ fontSize: 12, color: T.td }}>🔴 <span style={{ color: '#ef4444', fontWeight: 600 }}>Red</span> after {settings.dockDwellCriticalHours}hr</div>
+        </div>
+      </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>⏳ Move Request Aging</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: T.td }}>Pending unclaimed moves older than this threshold will be visually flagged.</p>
+        <div style={{ maxWidth: 260 }}>
+          <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Aging Threshold (minutes)</label>
+          <input type="number" min="5" step="5" value={settings.moveAgingMinutes} onChange={e => saveSetting('moveAgingMinutes', parseInt(e.target.value) || 5)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+        </div>
+        <div style={{ marginTop: 14, fontSize: 12, color: T.td }}>⚠️ Moves unclaimed for &gt; <strong style={{ color: '#f59e0b' }}>{settings.moveAgingMinutes} min</strong> will show a warning indicator</div>
+      </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>🕐 Shift Schedule</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: T.td }}>Configure shift start times and staffing for Shift Summary calculations.</p>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Day Shift Start</label>
+            <input type="time" value={settings.shiftStartDay} onChange={e => saveSetting('shiftStartDay', e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Night Shift Start</label>
+            <input type="time" value={settings.shiftStartNight} onChange={e => saveSetting('shiftStartNight', e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Hostlers Per Shift</label>
+            <input type="number" min="1" max="10" value={settings.hostlersPerShift} onChange={e => saveSetting('hostlersPerShift', parseInt(e.target.value) || 1)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+          </div>
+        </div>
+        <div style={{ marginTop: 14, fontSize: 12, color: T.td }}>☀️ Day: {settings.shiftStartDay} → {settings.shiftStartNight} &nbsp;|&nbsp; 🌙 Night: {settings.shiftStartNight} → {settings.shiftStartDay} &nbsp;|&nbsp; 👷 {settings.hostlersPerShift} hostler{settings.hostlersPerShift > 1 ? 's' : ''}/shift</div>
+      </Card>
+
+      <Card>
         <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>🏷️ Site Name</h3>
         <Input label="Displayed in header and login screen" value={settings.siteName} onChange={v => saveSetting('siteName', v)} placeholder="YardFlow" />
       </Card>
@@ -1233,6 +1431,279 @@ function AppShell({ currentUser, onLogout }) {
     </div>);
   };
 
+  // ─── RENDER: DAILY STATS ──────────────────────────────────────
+  const loadDailyStats = async () => {
+    setDsLoading(true);
+    const startDate = dailyStatsRange.start + 'T00:00:00';
+    const endDate = dailyStatsRange.end + 'T23:59:59';
+    const result = await db.fetchMovesRange(startDate, endDate);
+    setDailyStatsMoves(result.data || []);
+    setDsLoading(false);
+  };
+
+  const exportDailyStatsCSV = () => {
+    const comp = dailyStatsMoves.filter(m => m.status === 'completed');
+    const headers = ['Move #','Type','From','To','Trailer #','Trailer Type','Hostler','Status','Requested','Started','Completed','Duration (min)'];
+    const rows = comp.map(m => {
+      const dur = m.started_at && m.completed_at ? Math.round((new Date(m.completed_at) - new Date(m.started_at)) / 60000) : '';
+      return [m.move_number, m.type, locLabel(m.from_location), locLabel(m.to_location), m.trailer_number || '', m.trailer_type || '', userName(m.claimed_by), m.status, m.created_at, m.started_at || '', m.completed_at || '', dur];
+    });
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `daily-stats-${dailyStatsRange.start}-to-${dailyStatsRange.end}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportDailyStatsPDF = async () => {
+    // Dynamically load jsPDF
+    if (!window.jspdf) {
+      const s1 = document.createElement('script'); s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      document.head.appendChild(s1);
+      await new Promise(r => s1.onload = r);
+      const s2 = document.createElement('script'); s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
+      document.head.appendChild(s2);
+      await new Promise(r => s2.onload = r);
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('landscape');
+
+    const comp = dailyStatsMoves.filter(m => m.status === 'completed');
+    const byType = {};
+    MOVE_TYPES.forEach(mt => { byType[mt] = comp.filter(m => m.type === mt).length; });
+    const completionTimes = comp.filter(m => m.started_at && m.completed_at).map(m => (new Date(m.completed_at) - new Date(m.started_at)) / 60000);
+    const avgComp = completionTimes.length > 0 ? (completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length).toFixed(1) : 'N/A';
+    const totalHrs = dailyStatsRange.start === dailyStatsRange.end ? 24 : ((new Date(dailyStatsRange.end + 'T23:59:59') - new Date(dailyStatsRange.start + 'T00:00:00')) / 3600000);
+    const movesPerHr = comp.length > 0 ? (comp.length / totalHrs).toFixed(1) : '0.0';
+    const mismatches = dailyStatsMoves.filter(m => (m.notes || '').includes('[MISMATCH')).length;
+
+    doc.setFontSize(18);
+    doc.text(`${settings.siteName} — Daily Stats Report`, 14, 20);
+    doc.setFontSize(11);
+    doc.text(`Date Range: ${dailyStatsRange.start} to ${dailyStatsRange.end}`, 14, 28);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 34);
+
+    // Summary metrics
+    doc.setFontSize(13); doc.text('Summary', 14, 44);
+    doc.autoTable({
+      startY: 48, head: [['Total Moves', 'Completed', 'Pending', 'Cancelled', 'Avg Completion', 'Moves/Hr', 'Mismatches']],
+      body: [[dailyStatsMoves.length, comp.length, dailyStatsMoves.filter(m => m.status === 'pending').length, dailyStatsMoves.filter(m => m.status === 'cancelled').length, avgComp + ' min', movesPerHr, mismatches]],
+      theme: 'grid', headStyles: { fillColor: [41, 128, 185] }, styles: { fontSize: 10 }
+    });
+
+    // Moves by type
+    doc.setFontSize(13); doc.text('Moves by Type', 14, doc.lastAutoTable.finalY + 10);
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 14,
+      head: [MOVE_TYPES.map(mt => mt.replace('-', ' ').replace(/\b\w/g, c => c.toUpperCase()))],
+      body: [MOVE_TYPES.map(mt => byType[mt] || 0)],
+      theme: 'grid', headStyles: { fillColor: [46, 204, 113] }, styles: { fontSize: 10 }
+    });
+
+    // Hostler leaderboard
+    const hostlerStats = {};
+    comp.forEach(m => {
+      if (!m.claimed_by) return;
+      if (!hostlerStats[m.claimed_by]) hostlerStats[m.claimed_by] = { name: userName(m.claimed_by), completed: 0, totalMin: 0, count: 0 };
+      hostlerStats[m.claimed_by].completed++;
+      if (m.started_at && m.completed_at) { hostlerStats[m.claimed_by].totalMin += (new Date(m.completed_at) - new Date(m.started_at)) / 60000; hostlerStats[m.claimed_by].count++; }
+    });
+    const leaderboard = Object.values(hostlerStats).sort((a, b) => b.completed - a.completed);
+    if (leaderboard.length > 0) {
+      doc.setFontSize(13); doc.text('Hostler Leaderboard', 14, doc.lastAutoTable.finalY + 10);
+      doc.autoTable({
+        startY: doc.lastAutoTable.finalY + 14,
+        head: [['Hostler', 'Completed', 'Avg Time (min)', 'Moves/Hr']],
+        body: leaderboard.map(h => [h.name, h.completed, h.count > 0 ? (h.totalMin / h.count).toFixed(1) : 'N/A', h.count > 0 ? (h.completed / (h.totalMin / 60)).toFixed(1) : 'N/A']),
+        theme: 'grid', headStyles: { fillColor: [155, 89, 182] }, styles: { fontSize: 10 }
+      });
+    }
+
+    // Trailer type breakdown
+    const typeBreakdown = {};
+    comp.forEach(m => { const tt = m.trailer_type || m.requested_trailer_type || 'Unknown'; typeBreakdown[tt] = (typeBreakdown[tt] || 0) + 1; });
+    if (Object.keys(typeBreakdown).length > 0) {
+      doc.setFontSize(13); doc.text('Trailer Type Breakdown', 14, doc.lastAutoTable.finalY + 10);
+      doc.autoTable({
+        startY: doc.lastAutoTable.finalY + 14,
+        head: [['Trailer Type', 'Count', '% of Total']],
+        body: Object.entries(typeBreakdown).sort((a, b) => b[1] - a[1]).map(([tt, c]) => [tt, c, (c / comp.length * 100).toFixed(1) + '%']),
+        theme: 'grid', headStyles: { fillColor: [230, 126, 34] }, styles: { fontSize: 10 }
+      });
+    }
+
+    doc.save(`daily-stats-${dailyStatsRange.start}-to-${dailyStatsRange.end}.pdf`);
+  };
+
+  const renderDailyStats = () => {
+    const comp = dailyStatsMoves.filter(m => m.status === 'completed');
+    const pend = dailyStatsMoves.filter(m => m.status === 'pending');
+    const cancelled = dailyStatsMoves.filter(m => m.status === 'cancelled');
+    const mismatches = dailyStatsMoves.filter(m => (m.notes || '').includes('[MISMATCH'));
+    const completionTimes = comp.filter(m => m.started_at && m.completed_at).map(m => (new Date(m.completed_at) - new Date(m.started_at)) / 60000);
+    const avgComp = completionTimes.length > 0 ? (completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length).toFixed(1) : '—';
+    const totalHrs = dailyStatsRange.start === dailyStatsRange.end ? 24 : ((new Date(dailyStatsRange.end + 'T23:59:59') - new Date(dailyStatsRange.start + 'T00:00:00')) / 3600000);
+    const movesPerHr = comp.length > 0 ? (comp.length / totalHrs).toFixed(1) : '0.0';
+
+    // Moves by type
+    const byType = {};
+    MOVE_TYPES.forEach(mt => { byType[mt] = comp.filter(m => m.type === mt).length; });
+
+    // Hostler leaderboard
+    const hostlerStats = {};
+    comp.forEach(m => {
+      if (!m.claimed_by) return;
+      if (!hostlerStats[m.claimed_by]) hostlerStats[m.claimed_by] = { name: userName(m.claimed_by), completed: 0, totalMin: 0, count: 0 };
+      hostlerStats[m.claimed_by].completed++;
+      if (m.started_at && m.completed_at) { hostlerStats[m.claimed_by].totalMin += (new Date(m.completed_at) - new Date(m.started_at)) / 60000; hostlerStats[m.claimed_by].count++; }
+    });
+    const leaderboard = Object.values(hostlerStats).sort((a, b) => b.completed - a.completed);
+
+    // Trailer type breakdown
+    const typeBreakdown = {};
+    comp.forEach(m => { const tt = m.trailer_type || m.requested_trailer_type || 'Unknown'; typeBreakdown[tt] = (typeBreakdown[tt] || 0) + 1; });
+
+    // Peak hours
+    const hourBuckets = Array(24).fill(0);
+    comp.forEach(m => { if (m.completed_at) hourBuckets[new Date(m.completed_at).getHours()]++; });
+    const peakHour = hourBuckets.indexOf(Math.max(...hourBuckets));
+
+    // Dock utilization — count unique docks used
+    const usedDocks = new Set();
+    dailyStatsMoves.forEach(m => { if (m.from_location && m.from_location.startsWith('D')) usedDocks.add(m.from_location); if (m.to_location && m.to_location.startsWith('D')) usedDocks.add(m.to_location); });
+    const dockUtilPct = dockLocs.length ? Math.round(usedDocks.size / dockLocs.length * 100) : 0;
+
+    // Shift breakdown
+    const dayStart = settings.shiftStartDay || '05:30';
+    const nightStart = settings.shiftStartNight || '17:30';
+    const [dH, dM] = dayStart.split(':').map(Number);
+    const [nH, nM] = nightStart.split(':').map(Number);
+    const dayShiftMoves = comp.filter(m => { const h = new Date(m.created_at).getHours(); const hm = h * 60 + new Date(m.created_at).getMinutes(); const ds = dH * 60 + dM; const ns = nH * 60 + nM; return hm >= ds && hm < ns; });
+    const nightShiftMoves = comp.filter(m => !dayShiftMoves.includes(m));
+
+    return (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Date picker & controls */}
+      <Card>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Start Date</label>
+            <input type="date" value={dailyStatsRange.start} onChange={e => setDailyStatsRange(p => ({ ...p, start: e.target.value }))} style={{ padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 14, fontFamily: 'inherit' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>End Date</label>
+            <input type="date" value={dailyStatsRange.end} onChange={e => setDailyStatsRange(p => ({ ...p, end: e.target.value }))} style={{ padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 14, fontFamily: 'inherit' }} />
+          </div>
+          <Btn onClick={loadDailyStats} disabled={dsLoading}>{dsLoading ? '⏳ Loading...' : '📊 Load Stats'}</Btn>
+          {dailyStatsMoves.length > 0 && <>
+            <Btn variant="secondary" onClick={exportDailyStatsCSV}>📄 Export CSV</Btn>
+            <Btn variant="secondary" onClick={exportDailyStatsPDF}>📑 Export PDF</Btn>
+          </>}
+        </div>
+      </Card>
+
+      {dailyStatsMoves.length === 0 && !dsLoading && (
+        <Card><div style={{ textAlign: 'center', padding: 30, color: T.td }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>Select a date range and click "Load Stats"</div>
+          <div style={{ fontSize: 12, marginTop: 6 }}>Stats are auto-generated for the previous day at first shift start</div>
+        </div></Card>
+      )}
+
+      {dailyStatsMoves.length > 0 && <>
+        {/* Summary stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap: 12 }}>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Total Moves</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ac, marginTop: 4 }}>{dailyStatsMoves.length}</div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Completed</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ok, marginTop: 4 }}>{comp.length}</div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Avg Completion</div><div style={{ fontSize: 24, fontWeight: 800, color: T.in, marginTop: 4 }}>{avgComp}<span style={{ fontSize: 12 }}>min</span></div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Moves/Hour</div><div style={{ fontSize: 24, fontWeight: 800, color: T.pp, marginTop: 4 }}>{movesPerHr}</div></Card>
+          <Card style={{ padding: 14 }}><div style={{ fontSize: 10, color: T.tm, textTransform: 'uppercase', fontWeight: 700 }}>Mismatches</div><div style={{ fontSize: 24, fontWeight: 800, color: mismatches.length > 0 ? T.dg : T.ok, marginTop: 4 }}>{mismatches.length}</div></Card>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
+          {/* Moves by Type */}
+          <Card>
+            <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700 }}>📊 Moves by Type</h3>
+            {MOVE_TYPES.map(mt => (
+              <div key={mt} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${T.bd}11` }}>
+                <span style={{ fontSize: 13 }}>{mti(mt)} {mtl(mt)}</span>
+                <span style={{ fontWeight: 800, color: T.ac, fontSize: 16 }}>{byType[mt] || 0}</span>
+              </div>
+            ))}
+          </Card>
+
+          {/* Moves by Shift */}
+          <Card>
+            <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700 }}>🕐 Moves by Shift</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: `1px solid ${T.bd}11` }}>
+              <span style={{ fontSize: 13 }}>☀️ Day Shift ({dayStart} – {nightStart})</span>
+              <span style={{ fontWeight: 800, color: T.ok, fontSize: 16 }}>{dayShiftMoves.length}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: `1px solid ${T.bd}11` }}>
+              <span style={{ fontSize: 13 }}>🌙 Night Shift ({nightStart} – {dayStart})</span>
+              <span style={{ fontWeight: 800, color: T.in, fontSize: 16 }}>{nightShiftMoves.length}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0' }}>
+              <span style={{ fontSize: 13 }}>📈 Peak Hour</span>
+              <span style={{ fontWeight: 800, color: T.pp, fontSize: 16 }}>{peakHour}:00 ({hourBuckets[peakHour]} moves)</span>
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
+          {/* Hostler Leaderboard */}
+          <Card style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', borderBottom: `1px solid ${T.bd}` }}><h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🏆 Hostler Leaderboard</h3></div>
+            <Tbl columns={[
+              { key: 'n', label: 'Hostler', render: r => <span style={{ fontWeight: 600 }}>{r.name}</span> },
+              { key: 'c', label: 'Completed', render: r => <span style={{ fontWeight: 700, color: T.ok }}>{r.completed}</span> },
+              { key: 'a', label: 'Avg (min)', render: r => r.count > 0 ? (r.totalMin / r.count).toFixed(1) : '—' },
+              { key: 'm', label: 'Moves/Hr', render: r => r.count > 0 ? (r.completed / (r.totalMin / 60)).toFixed(1) : '—' },
+            ]} data={leaderboard} />
+          </Card>
+
+          {/* Trailer Type Breakdown */}
+          <Card>
+            <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700 }}>🚛 Trailer Type Breakdown</h3>
+            {Object.entries(typeBreakdown).sort((a, b) => b[1] - a[1]).map(([tt, c]) => (
+              <div key={tt} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${T.bd}11` }}>
+                <span style={{ fontSize: 13 }}><Badge color={T.in} small>{tt}</Badge></span>
+                <span style={{ fontWeight: 700 }}>{c} <span style={{ fontSize: 11, color: T.td }}>({(c / comp.length * 100).toFixed(1)}%)</span></span>
+              </div>
+            ))}
+          </Card>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
+          {/* Dock Utilization */}
+          <Card>
+            <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700 }}>🏗️ Dock Utilization</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ fontSize: 36, fontWeight: 800, color: T.ac }}>{dockUtilPct}%</div>
+              <div style={{ fontSize: 12, color: T.td }}>{usedDocks.size} of {dockLocs.length} docks used during this period</div>
+            </div>
+          </Card>
+
+          {/* Additional stats */}
+          <Card>
+            <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700 }}>📋 Additional Stats</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${T.bd}11` }}>
+              <span style={{ fontSize: 13 }}>Pending Carryover</span>
+              <span style={{ fontWeight: 700, color: T.wn }}>{pend.length}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${T.bd}11` }}>
+              <span style={{ fontSize: 13 }}>Cancelled</span>
+              <span style={{ fontWeight: 700, color: T.dg }}>{cancelled.length}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
+              <span style={{ fontSize: 13 }}>Completion Rate</span>
+              <span style={{ fontWeight: 700, color: T.ok }}>{dailyStatsMoves.length > 0 ? Math.round(comp.length / dailyStatsMoves.length * 100) : 0}%</span>
+            </div>
+          </Card>
+        </div>
+      </>}
+    </div>);
+  };
+
   // Screen access helper functions
   const updateScreenAccess = (newAccess) => {
     setScreenAccess(newAccess);
@@ -1255,6 +1726,7 @@ function AppShell({ currentUser, onLogout }) {
     { id: 'hostler', label: 'Hostler View', icon: '👷' },
     { id: 'analytics', label: 'Analytics', icon: '📈' },
     { id: 'guard', label: 'Guard Shack', icon: '🚪' },
+    { id: 'dailystats', label: 'Daily Stats', icon: '📅' },
     { id: 'locations', label: 'Locations', icon: '📍' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
     { id: 'users', label: 'Users', icon: '👥' },
@@ -1342,6 +1814,7 @@ function AppShell({ currentUser, onLogout }) {
           {view === 'hostler' && renderHostler()}
           {view === 'analytics' && renderAnalytics()}
           {view === 'guard' && renderGuard()}
+          {view === 'dailystats' && isAdmin && renderDailyStats()}
           {view === 'locations' && isAdmin && renderLocations()}
           {view === 'settings' && isAdmin && renderSettings()}
           {view === 'users' && (isAdmin || role === 'manager') && renderUsers()}
@@ -1598,6 +2071,113 @@ function AppShell({ currentUser, onLogout }) {
           {editLoc.type === 'dock' && <Input label="Zone" options={[{ value: 'Shipping', label: 'Shipping' }, { value: 'Receiving', label: 'Receiving' }, { value: 'Cross-Dock', label: 'Cross-Dock' }]} value={editLoc.zone || ''} onChange={v => setEditLoc(p => ({ ...p, zone: v }))} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}><Btn variant="secondary" onClick={() => setEditLoc(null)}>Cancel</Btn><Btn onClick={handleEditLoc}>Save</Btn></div>
         </div>}
+      </Modal>
+
+      {/* GES Bulk Dock Request Modal */}
+      <Modal open={showGESBulk} onClose={() => setShowGESBulk(false)} title="📋 GES Bulk Dock Request (D026-D045)" width={700}>
+        {showGESBulk && (() => {
+          const gesDockIds = Object.keys(gesBulkRows).sort();
+          const checkedCount = gesDockIds.filter(id => gesBulkRows[id]?.checked).length;
+          const allValid = gesDockIds.filter(id => gesBulkRows[id]?.checked).every(id => gesBulkRows[id]?.trailerType);
+
+          const handleGESSubmit = async () => {
+            if (!allValid) { alert('Please select a trailer type for all checked docks.'); return; }
+            const checked = gesDockIds.filter(id => gesBulkRows[id]?.checked);
+            if (checked.length === 0) { alert('No docks selected.'); return; }
+            if (!confirm(`Create ${checked.length} dock request(s)? This will generate the necessary moves.`)) return;
+
+            for (const dockId of checked) {
+              const row = gesBulkRows[dockId];
+              const currentTrailer = trailers.find(t => t.location_id === dockId);
+
+              if (currentTrailer) {
+                // Dock occupied → create from-dock first with NEXT_INBOUND tag
+                const notes = row.inboundTrailer
+                  ? `[NEXT_INBOUND #${row.inboundTrailer}] GES bulk request - need ${row.trailerType}`
+                  : `GES bulk request - need ${row.trailerType}`;
+                await db.createMove({
+                  type: 'from-dock',
+                  from_location: dockId,
+                  to_location: '',
+                  requested_trailer_type: row.trailerType,
+                  trailer_number: currentTrailer.number,
+                  trailer_type: currentTrailer.type,
+                  priority: 'normal',
+                  notes,
+                  requested_by: currentUser.name,
+                });
+              } else {
+                // Dock empty → create to-dock directly
+                const notes = row.inboundTrailer
+                  ? `[INBOUND #${row.inboundTrailer}] GES bulk request`
+                  : 'GES bulk request';
+                await db.createMove({
+                  type: 'to-dock',
+                  from_location: '',
+                  to_location: dockId,
+                  requested_trailer_type: row.trailerType,
+                  trailer_number: row.inboundTrailer || '',
+                  trailer_type: row.trailerType,
+                  priority: 'normal',
+                  notes,
+                  requested_by: currentUser.name,
+                });
+              }
+            }
+
+            alert(`✅ Created ${checked.length} dock request(s) successfully!`);
+            setShowGESBulk(false);
+            db.fetchMoves().then(r => setMoves(r.data || []));
+          };
+
+          return (<div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <p style={{ margin: 0, fontSize: 13, color: T.td }}>Select GES docks and specify the trailer type needed. For occupied docks, a from-dock move is created first, chained with the replacement request.</p>
+            <div style={{ maxHeight: 420, overflow: 'auto', border: `1px solid ${T.bd}`, borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: T.sa, position: 'sticky', top: 0, zIndex: 1 }}>
+                  <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: T.tm, textTransform: 'uppercase', borderBottom: `1px solid ${T.bd}` }}>✓</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: T.tm, textTransform: 'uppercase', borderBottom: `1px solid ${T.bd}` }}>Dock</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: T.tm, textTransform: 'uppercase', borderBottom: `1px solid ${T.bd}` }}>Current Trailer</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: T.tm, textTransform: 'uppercase', borderBottom: `1px solid ${T.bd}` }}>Inbound # (optional)</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: T.tm, textTransform: 'uppercase', borderBottom: `1px solid ${T.bd}` }}>Trailer Type *</th>
+                </tr></thead>
+                <tbody>
+                  {gesDockIds.map(dockId => {
+                    const row = gesBulkRows[dockId] || {};
+                    const dock = locations.find(l => l.id === dockId);
+                    const tr = trailers.find(t => t.location_id === dockId);
+                    const isOOS = dock?.active === false;
+                    return (<tr key={dockId} style={{ borderBottom: `1px solid ${T.bd}22`, opacity: isOOS ? 0.4 : 1, background: row.checked ? T.ac + '08' : 'transparent' }}>
+                      <td style={{ padding: '6px 10px' }}>
+                        <input type="checkbox" disabled={isOOS} checked={row.checked || false} onChange={e => setGesBulkRows(p => ({ ...p, [dockId]: { ...p[dockId], checked: e.target.checked } }))} style={{ cursor: isOOS ? 'not-allowed' : 'pointer' }} />
+                      </td>
+                      <td style={{ padding: '6px 10px', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{dock?.label || dockId}{isOOS && <Badge color={T.dg} small>OOS</Badge>}</td>
+                      <td style={{ padding: '6px 10px' }}>
+                        {tr ? <span style={{ fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{tr.number} {tr.type && <Badge color={T.in} small>{tr.type}</Badge>}</span> : <span style={{ color: T.ok, fontWeight: 600 }}>Empty</span>}
+                      </td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <input type="text" value={row.inboundTrailer || ''} onChange={e => setGesBulkRows(p => ({ ...p, [dockId]: { ...p[dockId], inboundTrailer: e.target.value } }))} disabled={!row.checked} placeholder="Trailer #" style={{ width: 100, padding: '4px 8px', borderRadius: 4, border: `1px solid ${T.bd}`, background: row.checked ? T.sa : T.bg, color: T.tx, fontSize: 13, fontFamily: 'inherit' }} />
+                      </td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <select value={row.trailerType || ''} onChange={e => setGesBulkRows(p => ({ ...p, [dockId]: { ...p[dockId], trailerType: e.target.value } }))} disabled={!row.checked} style={{ padding: '4px 8px', borderRadius: 4, border: `1px solid ${row.checked && !row.trailerType ? '#ef4444' : T.bd}`, background: row.checked ? T.sa : T.bg, color: T.tx, fontSize: 13, fontFamily: 'inherit', cursor: row.checked ? 'pointer' : 'default' }}>
+                          <option value="">Select type...</option>
+                          {TRAILER_TYPES.map(tt => <option key={tt} value={tt}>{tt}</option>)}
+                        </select>
+                      </td>
+                    </tr>);
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 12, color: T.td }}>{checkedCount} dock(s) selected</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Btn variant="secondary" onClick={() => setShowGESBulk(false)}>Cancel</Btn>
+                <Btn onClick={handleGESSubmit} disabled={checkedCount === 0 || !allValid}>Submit {checkedCount} Request{checkedCount !== 1 ? 's' : ''}</Btn>
+              </div>
+            </div>
+          </div>);
+        })()}
       </Modal>
     </div>
   );

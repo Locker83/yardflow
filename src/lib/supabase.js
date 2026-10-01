@@ -242,9 +242,9 @@ export const DEFAULT_SETTINGS = {
   maxMoveMinutes: 30,
   shiftHours: 10,
   autoCreateSendBack: true,
-  // Dock dwell time alert thresholds (hours)
-  dockDwellWarningHours: 4,
-  dockDwellCriticalHours: 8,
+  // Dock dwell time alert thresholds (minutes)
+  dockDwellWarningMinutes: 240,
+  dockDwellCriticalMinutes: 480,
   // Move request aging threshold (minutes)
   moveAgingMinutes: 30,
   // Shift schedule configuration

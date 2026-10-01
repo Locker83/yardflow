@@ -231,7 +231,11 @@ function AppShell({ currentUser, onLogout }) {
   const [trailers, setTrailers] = useState([]);
   const [moves, setMoves] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState(role === 'hostler' ? 'hostler' : role === 'guard' ? 'guard' : 'dashboard');
+  const [view, setView] = useState(() => {
+    // Determine first allowed screen for this role based on saved access or defaults
+    const da = { admin: ['dashboard','moves','trailers','docks','yard','hostler','analytics','guard','dailystats','locations','settings','users'], manager: ['dashboard','moves','trailers','docks','yard','analytics','guard','users'], warehouse: ['moves','trailers','docks','yard'], hostler: ['hostler','docks','yard'], guard: ['guard'] };
+    try { const saved = localStorage.getItem('yf_screen_access'); const acc = saved ? JSON.parse(saved) : da; const screens = acc[role] || da[role] || ['dashboard']; return screens[0]; } catch { return da[role]?.[0] || 'dashboard'; }
+  });
   const [showNewMove, setShowNewMove] = useState(false);
   const [showNewTrailer, setShowNewTrailer] = useState(false);
   const [editTrailer, setEditTrailer] = useState(null);
@@ -751,6 +755,13 @@ function AppShell({ currentUser, onLogout }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <Btn onClick={() => setShowNewMove(true)}>+ New Move Request</Btn>
+        {(role === 'admin' || role === 'manager' || role === 'warehouse') && <Btn onClick={() => {
+          const gesDocks = ['D026','D027','D028','D029','D030','D031','D032','D033','D034','D035','D036','D037','D038','D039','D040','D041','D042','D043','D044','D045'];
+          const rows = {};
+          gesDocks.forEach(id => { rows[id] = { checked: false, inboundTrailer: '', trailerType: '' }; });
+          setGesBulkRows(rows);
+          setShowGESBulk(true);
+        }}>📋 GES Bulk Dock Request</Btn>}
         <Input placeholder="Search..." value={filter} onChange={setFilter} style={{ width: 180 }} />
         <Input options={[{ value: '', label: 'All Hostlers' }, ...hostlers.map(h => ({ value: h.id, label: h.name }))]} value={hf} onChange={setHf} style={{ width: 160 }} />
         <Input options={[{ value: '', label: 'All Statuses' }, { value: 'pending', label: 'Pending' }, { value: 'in-progress', label: 'In Progress' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }]} value={sf} onChange={setSf} style={{ width: 150 }} />
@@ -828,9 +839,9 @@ function AppShell({ currentUser, onLogout }) {
               const hasPending = dockMoves.some(m => m.status === 'pending');
               const hasActive = dockMoves.some(m => m.status === 'in-progress');
               // Dock dwell time calculation
-              const dwellHours = tr ? (Date.now() - new Date(tr.last_moved || tr.updated_at || tr.created_at).getTime()) / 3600000 : 0;
-              const dwellCritical = tr && dwellHours >= settings.dockDwellCriticalHours;
-              const dwellWarning = tr && !dwellCritical && dwellHours >= settings.dockDwellWarningHours;
+              const dwellMinutes = tr ? (Date.now() - new Date(tr.last_moved || tr.updated_at || tr.created_at).getTime()) / 60000 : 0;
+              const dwellCritical = tr && dwellMinutes >= settings.dockDwellCriticalMinutes;
+              const dwellWarning = tr && !dwellCritical && dwellMinutes >= settings.dockDwellWarningMinutes;
               const borderColor = isOOS ? T.dg : dwellCritical ? '#ef4444' : dwellWarning ? '#f59e0b' : tr ? T.in : T.ok;
 
               return (
@@ -847,8 +858,8 @@ function AppShell({ currentUser, onLogout }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, color: borderColor, fontFamily: "'JetBrains Mono', monospace" }}>{dock.label}</span>
                     {isOOS && <Badge color={T.dg} small>OOS</Badge>}
-                    {!isOOS && dwellCritical && <Badge color="#ef4444" small>🔴 {Math.floor(dwellHours)}hr</Badge>}
-                    {!isOOS && dwellWarning && <Badge color="#f59e0b" small>⚠️ {Math.floor(dwellHours)}hr</Badge>}
+                    {!isOOS && dwellCritical && <Badge color="#ef4444" small>🔴 {dwellMinutes >= 60 ? Math.floor(dwellMinutes / 60) + 'h ' + Math.floor(dwellMinutes % 60) + 'm' : Math.floor(dwellMinutes) + 'm'}</Badge>}
+                    {!isOOS && dwellWarning && <Badge color="#f59e0b" small>⚠️ {dwellMinutes >= 60 ? Math.floor(dwellMinutes / 60) + 'h ' + Math.floor(dwellMinutes % 60) + 'm' : Math.floor(dwellMinutes) + 'm'}</Badge>}
                     {!isOOS && hasPending && <Badge color={T.wn} small>PENDING</Badge>}
                     {!isOOS && hasActive && <Badge color={T.in} small>ACTIVE</Badge>}
                   </div>
@@ -1266,17 +1277,17 @@ function AppShell({ currentUser, onLogout }) {
         <p style={{ margin: '0 0 14px', fontSize: 12, color: T.td }}>Trailers occupying a dock longer than these thresholds will be highlighted on View Docks.</p>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Warning Threshold (hours)</label>
-            <input type="number" min="1" step="0.5" value={settings.dockDwellWarningHours} onChange={e => saveSetting('dockDwellWarningHours', parseFloat(e.target.value) || 1)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Warning Threshold (minutes)</label>
+            <input type="number" min="1" step="5" value={settings.dockDwellWarningMinutes} onChange={e => saveSetting('dockDwellWarningMinutes', parseInt(e.target.value) || 1)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Critical Threshold (hours)</label>
-            <input type="number" min="1" step="0.5" value={settings.dockDwellCriticalHours} onChange={e => saveSetting('dockDwellCriticalHours', parseFloat(e.target.value) || 1)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Critical Threshold (minutes)</label>
+            <input type="number" min="1" step="5" value={settings.dockDwellCriticalMinutes} onChange={e => saveSetting('dockDwellCriticalMinutes', parseInt(e.target.value) || 1)} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
           </div>
         </div>
         <div style={{ marginTop: 14, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 12, color: T.td }}>⚠️ <span style={{ color: '#f59e0b', fontWeight: 600 }}>Yellow</span> after {settings.dockDwellWarningHours}hr</div>
-          <div style={{ fontSize: 12, color: T.td }}>🔴 <span style={{ color: '#ef4444', fontWeight: 600 }}>Red</span> after {settings.dockDwellCriticalHours}hr</div>
+          <div style={{ fontSize: 12, color: T.td }}>⚠️ <span style={{ color: '#f59e0b', fontWeight: 600 }}>Yellow</span> after {settings.dockDwellWarningMinutes} min</div>
+          <div style={{ fontSize: 12, color: T.td }}>🔴 <span style={{ color: '#ef4444', fontWeight: 600 }}>Red</span> after {settings.dockDwellCriticalMinutes} min</div>
         </div>
       </Card>
 

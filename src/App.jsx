@@ -447,34 +447,42 @@ function AppShell({ currentUser, onLogout }) {
       updates.notes = (m.notes || '') + ` [MISMATCH: requested #${m.trailer_number}, actual #${cmFields.trailerNumber}]`;
     }
 
-    await db.completeMove(m.id, updates);
+    try {
+      await db.completeMove(m.id, updates);
 
-    // For from-dock: explicitly clear the trailer from the dock
-    if (m.type === 'from-dock' && m.from_location) {
-      console.log('[YF] From-dock complete — clearing dock:', m.from_location);
-      const clearResult = await db.clearTrailerFromDock(m.from_location, cmFields.yardSpot || null);
-      console.log('[YF] Clear result:', clearResult);
-    }
+      // For from-dock: clear the trailer from the dock using its primary key ID
+      if (m.type === 'from-dock' && m.from_location) {
+        const dockTrailer = trailers.find(t => t.location_id === m.from_location);
+        if (dockTrailer) {
+          console.log('[YF] Clearing trailer', dockTrailer.number, '(id:', dockTrailer.id, ') from dock', m.from_location);
+          await db.clearTrailerFromDockById(dockTrailer.id, cmFields.yardSpot || null);
+        } else {
+          console.warn('[YF] No trailer found at dock location:', m.from_location);
+        }
+      }
 
-    // If from-dock had a requested type back, auto-create a to-dock move
-    if (m.type === 'from-dock' && m.requested_trailer_type && settings.autoCreateSendBack) {
-      // Check if a specific inbound trailer # was requested for next load
-      const nextInboundMatch = (m.notes || '').match(/\[NEXT_INBOUND #([^\]]+)\]/);
-      const nextInboundNum = nextInboundMatch ? nextInboundMatch[1] : '';
-      await db.createMove({
-        type: 'to-dock',
-        trailer_number: nextInboundNum, // specific trailer if provided, empty otherwise
-        trailer_type: m.requested_trailer_type,
-        from_location: null,
-        to_location: m.from_location, // same dock
-        requested_by: m.requested_by || currentUser.name,
-        requested_by_user: m.requested_by_user,
-        priority: m.priority,
-        notes: nextInboundNum
-          ? `[INBOUND #${nextInboundNum}] Auto-created: Inbound #${nextInboundNum} (${m.requested_trailer_type}) to ${locLabel(m.from_location)}`
-          : `Auto-created: ${m.requested_trailer_type} requested back at ${locLabel(m.from_location)}`,
-        requested_trailer_type: nextInboundNum ? '' : m.requested_trailer_type, // clear type if specific trailer is set
-      });
+      // If from-dock had a requested type back, auto-create a to-dock move
+      if (m.type === 'from-dock' && m.requested_trailer_type && settings.autoCreateSendBack) {
+        const nextInboundMatch = (m.notes || '').match(/\[NEXT_INBOUND #([^\]]+)\]/);
+        const nextInboundNum = nextInboundMatch ? nextInboundMatch[1] : '';
+        await db.createMove({
+          type: 'to-dock',
+          trailer_number: nextInboundNum,
+          trailer_type: m.requested_trailer_type,
+          from_location: null,
+          to_location: m.from_location,
+          requested_by: m.requested_by || currentUser.name,
+          requested_by_user: m.requested_by_user,
+          priority: m.priority,
+          notes: nextInboundNum
+            ? `[INBOUND #${nextInboundNum}] Auto-created: Inbound #${nextInboundNum} (${m.requested_trailer_type}) to ${locLabel(m.from_location)}`
+            : `Auto-created: ${m.requested_trailer_type} requested back at ${locLabel(m.from_location)}`,
+          requested_trailer_type: nextInboundNum ? '' : m.requested_trailer_type,
+        });
+      }
+    } catch (err) {
+      console.error('[YF] Error completing move:', err);
+      alert('Move marked complete but there was an error updating the trailer. Check console for details.');
     }
 
     setCompleteModal(null);

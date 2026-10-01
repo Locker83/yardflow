@@ -475,6 +475,15 @@ function AppShell({ currentUser, onLogout }) {
         return;
       }
     }
+    // Warn (but don't block) if trailer is OOS
+    const trailerNum = nm.type === 'dock-adjust' ? nm.trailerNumber : (nm.type === 'to-dock' && nm.direction === 'inbound' ? nm.trailerNumber : (nm.type === 'from-dock' ? (trailers.find(t => t.location_id === nm.dock)?.number || '') : ''));
+    if (trailerNum) {
+      const oosTrailer = trailers.find(t => t.number === trailerNum && t.active === false);
+      if (oosTrailer) {
+        const proceed = confirm(`⚠️ Trailer #${trailerNum} is currently OUT OF SERVICE${oosTrailer.inactive_reason ? '\nReason: ' + oosTrailer.inactive_reason : ''}\n\nDo you want to proceed anyway?`);
+        if (!proceed) return;
+      }
+    }
     const moveData = {
       type: nm.type,
       trailer_number: nm.type === 'dock-adjust' ? nm.trailerNumber : (nm.type === 'to-dock' && nm.direction === 'inbound' ? nm.trailerNumber : (nm.type === 'from-dock' ? (trailers.find(t => t.location_id === nm.dock)?.number || '') : '')),
@@ -869,6 +878,7 @@ function AppShell({ currentUser, onLogout }) {
                       <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
                         {tr.type && <Badge color={T.in} small>{tr.type}</Badge>}
                         {tr.status && <Badge color={tr.status === 'Loaded' ? T.ok : tr.status === 'Empty' ? T.td : T.wn} small>{tr.status}</Badge>}
+                        {tr.active === false && <Badge color={T.dg} small>⛔ OOS</Badge>}
                       </div>
                       {tr.carrier && <div style={{ fontSize: 10, color: T.td, marginTop: 4 }}>{tr.carrier}</div>}
                     </div>
@@ -978,14 +988,15 @@ function AppShell({ currentUser, onLogout }) {
               const tr = at(id);
               const loc = locations.find(l => l.id === id);
               const isOOS = loc && loc.active === false;
-              const color = tr ? OCCUPIED : EMPTY;
-              const bg = tr ? OCCUPIED + '44' : EMPTY + '22';
+              const trOOS = tr && tr.active === false;
+              const color = trOOS ? T.dg : tr ? OCCUPIED : EMPTY;
+              const bg = trOOS ? T.dg + '30' : tr ? OCCUPIED + '44' : EMPTY + '22';
               return (
-                <div key={id} onClick={() => handleSpotClick(id)} title={label + (isOOS ? ' (OUT OF SERVICE)' : '') + (tr ? ': ' + tr.number : ': Empty')} style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: CELL_W - 3, height: CELL_H - 2, background: bg, border: `1.5px solid ${color}`, borderRadius: 3, color, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', lineHeight: 1.1, opacity: isOOS ? 0.35 : 1 }}>
+                <div key={id} onClick={() => handleSpotClick(id)} title={label + (isOOS ? ' (SPOT OUT OF SERVICE)' : '') + (tr ? ': ' + tr.number + (trOOS ? ' ⛔ OOS TRAILER' : '') : ': Empty')} style={{ position: 'absolute', left: c * CELL_W, top: r * CELL_H, width: CELL_W - 3, height: CELL_H - 2, background: bg, border: `1.5px solid ${color}`, borderRadius: 3, color, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', lineHeight: 1.1, opacity: isOOS ? 0.35 : 1 }}>
                   {tr ? (
                     <Fragment>
                       <div style={{ fontSize: 9, opacity: 0.8 }}>{label}</div>
-                      <div style={{ fontSize: 11, fontWeight: 800 }}>{tr.number}</div>
+                      <div style={{ fontSize: 11, fontWeight: 800 }}>{tr.number}{trOOS && <span style={{ color: T.dg, fontSize: 8 }}> ⛔</span>}</div>
                     </Fragment>
                   ) : (
                     <div style={{ fontSize: 11 }}>{label}</div>
@@ -1012,10 +1023,12 @@ function AppShell({ currentUser, onLogout }) {
             {selectedYardLoc.trailer ? (
               <div style={{ padding: 14, background: OCCUPIED + '15', border: `1px solid ${OCCUPIED}44`, borderRadius: 8 }}>
                 <div style={{ fontSize: 11, color: T.tm, textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>Trailer Currently Here</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: OCCUPIED, fontFamily: "'JetBrains Mono', monospace", marginBottom: 8 }}>{selectedYardLoc.trailer.number}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: selectedYardLoc.trailer.active === false ? T.dg : OCCUPIED, fontFamily: "'JetBrains Mono', monospace", marginBottom: 8 }}>{selectedYardLoc.trailer.number}</div>
+                {selectedYardLoc.trailer.active === false && <div style={{ padding: '8px 12px', background: T.dg + '15', border: `1px solid ${T.dg}55`, borderRadius: 6, fontSize: 12, color: T.dg, marginBottom: 8 }}>⛔ <strong>Trailer Out of Service</strong>{selectedYardLoc.trailer.inactive_reason && <span> — {selectedYardLoc.trailer.inactive_reason}</span>}</div>}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {selectedYardLoc.trailer.type && <Badge color={T.in}>{selectedYardLoc.trailer.type}</Badge>}
                   {selectedYardLoc.trailer.status && <Badge color={T.pp}>{selectedYardLoc.trailer.status}</Badge>}
+                  {selectedYardLoc.trailer.active === false && <Badge color={T.dg}>⛔ OOS</Badge>}
                   {selectedYardLoc.trailer.carrier && <Badge color={T.tm}>{selectedYardLoc.trailer.carrier}</Badge>}
                 </div>
                 {selectedYardLoc.trailer.notes && <div style={{ marginTop: 10, fontSize: 12, color: T.tm }}>📝 {selectedYardLoc.trailer.notes}</div>}
@@ -1881,6 +1894,7 @@ function AppShell({ currentUser, onLogout }) {
           {nm.type === 'to-dock' && nm.direction === 'inbound' && (
             <Input label="Inbound Trailer #" value={nm.trailerNumber || ''} onChange={v => setNm(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 53-1234" />
           )}
+          {nm.trailerNumber && (() => { const oos = trailers.find(t => t.number === nm.trailerNumber && t.active === false); return oos ? <div style={{ padding: '10px 14px', background: T.dg + '18', border: `1px solid ${T.dg}55`, borderRadius: 8, fontSize: 13, color: T.dg, display: 'flex', alignItems: 'flex-start', gap: 8 }}><span style={{ fontSize: 18, lineHeight: 1 }}>⛔</span><div><strong>Trailer #{nm.trailerNumber} is Out of Service</strong>{oos.inactive_reason && <><br/><span style={{ fontSize: 12, opacity: 0.8 }}>Reason: {oos.inactive_reason}</span></>}<br/><span style={{ fontSize: 12, opacity: 0.8 }}>You can still submit — you'll be asked to confirm.</span></div></div> : null; })()}
 
           {nm.type === 'from-dock' && (
             <Input label="Need a Trailer Back? (optional)" options={[{ value: '', label: '— No, just pull —' }, ...TRAILER_TYPES.map(t => ({ value: t, label: t }))]} value={nm.requestBackType || ''} onChange={v => setNm(p => ({ ...p, requestBackType: v, requestBackNumber: v ? p.requestBackNumber : '' }))} />
@@ -2003,6 +2017,7 @@ function AppShell({ currentUser, onLogout }) {
             <div><div style={{ fontSize: 10, color: T.td, textTransform: 'uppercase', fontWeight: 700 }}>Requested By</div><div style={{ fontSize: 14, fontWeight: 600, marginTop: 4 }}>{selMove.requested_by || '—'}</div></div>
             <div><div style={{ fontSize: 10, color: T.td, textTransform: 'uppercase', fontWeight: 700 }}>Completed By</div><div style={{ fontSize: 14, fontWeight: 600, marginTop: 4 }}>{selMove.claimed_by ? <span><Dot color={userColor(selMove.claimed_by)} />{userName(selMove.claimed_by)}</span> : <span style={{ color: T.wn }}>Unclaimed</span>}</div></div>
           </div>
+          {selMove.trailer_number && (() => { const oos = trailers.find(t => t.number === selMove.trailer_number && t.active === false); return oos ? <div style={{ padding: '10px 14px', background: T.dg + '18', border: `1px solid ${T.dg}55`, borderRadius: 8, fontSize: 13, color: T.dg, display: 'flex', alignItems: 'flex-start', gap: 8 }}><span style={{ fontSize: 18, lineHeight: 1 }}>⛔</span><div><strong>Trailer #{selMove.trailer_number} is Out of Service</strong>{oos.inactive_reason && <><br/><span style={{ fontSize: 12, opacity: 0.8 }}>Reason: {oos.inactive_reason}</span></>}</div></div> : null; })()}
           {selMove.requested_trailer_type && <div style={{ padding: '8px 12px', background: T.in + '15', borderRadius: 6, fontSize: 12 }}>Requested trailer type: <Badge color={T.in}>{selMove.requested_trailer_type}</Badge></div>}
           {selMove.cancel_reason && <div style={{ padding: '8px 12px', background: T.dg + '15', borderRadius: 6, fontSize: 12, color: T.dg }}>Cancel reason: {selMove.cancel_reason}</div>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>

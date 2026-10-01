@@ -112,6 +112,17 @@ export async function updateTrailerByNumber(number, updates) {
   return { data, error };
 }
 
+export async function clearTrailerFromDockById(trailerId, yardSpot) {
+  const newLoc = yardSpot || null;
+  console.log('[YF] clearTrailerFromDockById: trailerId=', trailerId, 'newLoc=', newLoc);
+  const { data, error } = await supabase.from('trailers')
+    .update({ location_id: newLoc, last_moved: new Date().toISOString() })
+    .eq('id', trailerId)
+    .select().single();
+  console.log('[YF] clearTrailerFromDockById result:', { data, error });
+  return { data, error };
+}
+
 // ─── MOVES ──────────────────────────────────────────────────
 export async function fetchMoves() {
   const { data, error } = await supabase.from('moves').select('*').order('created_at', { ascending: false });
@@ -154,10 +165,10 @@ export async function completeMove(moveId, hostlerUpdates = {}) {
   const tLoc = hostlerUpdates.to_location || data?.to_location;
   const moveType = data?.type;
 
-  // For from-dock: move trailer to "Yard" if no specific yard spot was given
-  if (tNum && !tLoc && moveType === 'from-dock') {
-    const { data: existing } = await supabase.from('trailers').select('id').eq('number', tNum).maybeSingle();
-    if (existing) await updateTrailerByNumber(tNum, { location_id: 'Yard' });
+  // For from-dock: trailer clearing is handled by App.jsx (clearTrailerFromDockById)
+  // which uses the trailer's primary key ID for reliable updates
+  if (moveType === 'from-dock') {
+    return { data, error };
   }
 
   if (tNum && tLoc) {

@@ -111,6 +111,16 @@ export async function updateTrailerByNumber(number, updates) {
   const { data, error } = await supabase.from('trailers').update({ ...updates, last_moved: new Date().toISOString() }).eq('number', number).select().single();
   return { data, error };
 }
+// Clear a trailer from a dock — set location_id to null (or yard spot)
+export async function clearTrailerFromDock(dockLocationId, yardSpot) {
+  const newLoc = yardSpot || null;
+  console.log('[YF] clearTrailerFromDock: dockLocationId=', dockLocationId, 'newLoc=', newLoc);
+  const { data, error } = await supabase.from('trailers')
+    .update({ location_id: newLoc, last_moved: new Date().toISOString() })
+    .eq('location_id', dockLocationId);
+  console.log('[YF] clearTrailerFromDock result:', { data, error, matched: data?.length });
+  return { data, error };
+}
 
 // ─── MOVES ──────────────────────────────────────────────────
 export async function fetchMoves() {
@@ -156,14 +166,23 @@ export async function completeMove(moveId, hostlerUpdates = {}) {
   const tLoc = hostlerUpdates.to_location || data?.to_location;
   const moveType = data?.type;
 
-  // For from-dock: clear trailer from the dock (set location_id to null)
-  if (moveType === 'from-dock' && tNum) {
-    // Direct update — bypass .single() to avoid silent failures
-    const clearLoc = tLoc || null;
-    const { error: clearErr } = await supabase.from('trailers')
-      .update({ location_id: clearLoc, last_moved: new Date().toISOString() })
-      .eq('number', tNum);
-    if (clearErr) console.error('Failed to clear trailer from dock:', clearErr);
+  // For from-dock: clear the trailer FROM the dock
+  if (moveType === 'from-dock') {
+    const dockLoc = data?.from_location;
+    const yardDest = tLoc || null; // yard spot if hostler provided one
+    if (dockLoc) {
+      // Clear by dock location — more reliable than trailer number (handles mismatches)
+      const { error: clearErr } = await supabase.from('trailers')
+        .update({ location_id: yardDest, last_moved: new Date().toISOString() })
+        .eq('location_id', dockLoc);
+      if (clearErr) console.error('Failed to clear trailer from dock:', clearErr);
+    } else if (tNum) {
+      // Fallback: clear by trailer number if no from_location on move
+      const { error: clearErr } = await supabase.from('trailers')
+        .update({ location_id: yardDest, last_moved: new Date().toISOString() })
+        .eq('number', tNum);
+      if (clearErr) console.error('Failed to clear trailer from dock:', clearErr);
+    }
     return { data, error };
   }
 

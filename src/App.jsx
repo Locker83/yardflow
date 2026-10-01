@@ -397,12 +397,12 @@ function AppShell({ currentUser, onLogout }) {
       requested_by: currentUser.name, // LOCKED to current user
       requested_by_user: currentUser.id,
       priority: nm.priority,
-      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : [nm.direction === 'inbound' ? `[INBOUND #${nm.trailerNumber}]` : (nm.direction ? `[${nm.direction.toUpperCase()}]` : ''), nm.type === 'from-dock' ? (() => { const dockTr = trailers.find(t => t.location_id === nm.dock); return dockTr ? `[EXPECTED #${dockTr.number}]` : ''; })() : '', nm.notes].filter(Boolean).join(' '),
+      notes: nm.type === 'dock-adjust' ? (nm.notes ? nm.notes : 'Dock plate adjustment needed') : [nm.direction === 'inbound' ? `[INBOUND #${nm.trailerNumber}]` : (nm.direction ? `[${nm.direction.toUpperCase()}]` : ''), nm.type === 'from-dock' ? (() => { const dockTr = trailers.find(t => t.location_id === nm.dock); return dockTr ? `[EXPECTED #${dockTr.number}]` : ''; })() : '', nm.type === 'from-dock' && nm.requestBackNumber ? `[NEXT_INBOUND #${nm.requestBackNumber}]` : '', nm.notes].filter(Boolean).join(' '),
       requested_trailer_type: nm.type === 'to-dock' && nm.direction !== 'inbound' ? nm.trailerType : (nm.requestBackType || ''),
     };
     await db.createMove(moveData);
     setShowNewMove(false);
-    setNm({ type: 'to-dock', dock: '', trailerType: '', trailerNumber: '', loadStatus: '', direction: '', requestBackType: '', priority: 'normal', notes: '' });
+    setNm({ type: 'to-dock', dock: '', trailerType: '', trailerNumber: '', loadStatus: '', direction: '', requestBackType: '', requestBackNumber: '', priority: 'normal', notes: '' });
     db.fetchMoves().then(r => setMoves(r.data));
   };
 
@@ -449,19 +449,31 @@ function AppShell({ currentUser, onLogout }) {
 
     await db.completeMove(m.id, updates);
 
+    // For from-dock: explicitly clear the trailer from the dock
+    if (m.type === 'from-dock' && m.from_location) {
+      console.log('[YF] From-dock complete — clearing dock:', m.from_location);
+      const clearResult = await db.clearTrailerFromDock(m.from_location, cmFields.yardSpot || null);
+      console.log('[YF] Clear result:', clearResult);
+    }
+
     // If from-dock had a requested type back, auto-create a to-dock move
     if (m.type === 'from-dock' && m.requested_trailer_type && settings.autoCreateSendBack) {
+      // Check if a specific inbound trailer # was requested for next load
+      const nextInboundMatch = (m.notes || '').match(/\[NEXT_INBOUND #([^\]]+)\]/);
+      const nextInboundNum = nextInboundMatch ? nextInboundMatch[1] : '';
       await db.createMove({
         type: 'to-dock',
-        trailer_number: '',
+        trailer_number: nextInboundNum, // specific trailer if provided, empty otherwise
         trailer_type: m.requested_trailer_type,
         from_location: null,
         to_location: m.from_location, // same dock
         requested_by: m.requested_by || currentUser.name,
         requested_by_user: m.requested_by_user,
         priority: m.priority,
-        notes: `Auto-created: ${m.requested_trailer_type} requested back at ${locLabel(m.from_location)}`,
-        requested_trailer_type: m.requested_trailer_type,
+        notes: nextInboundNum
+          ? `[INBOUND #${nextInboundNum}] Auto-created: Inbound #${nextInboundNum} (${m.requested_trailer_type}) to ${locLabel(m.from_location)}`
+          : `Auto-created: ${m.requested_trailer_type} requested back at ${locLabel(m.from_location)}`,
+        requested_trailer_type: nextInboundNum ? '' : m.requested_trailer_type, // clear type if specific trailer is set
       });
     }
 
@@ -1333,7 +1345,7 @@ function AppShell({ currentUser, onLogout }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             {MOVE_TYPES.map(mt => (
-              <button key={mt.id} onClick={() => setNm(p => ({ ...p, type: mt.id, dock: '', trailerType: '', trailerNumber: '', direction: '', requestBackType: '' }))}
+              <button key={mt.id} onClick={() => setNm(p => ({ ...p, type: mt.id, dock: '', trailerType: '', trailerNumber: '', direction: '', requestBackType: '', requestBackNumber: '' }))}
                 style={{ flex: 1, padding: '14px 16px', borderRadius: 8, background: nm.type === mt.id ? T.ac + '22' : T.sa, border: `2px solid ${nm.type === mt.id ? T.ac : T.bd}`, color: nm.type === mt.id ? T.ac : T.tm, cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 700, textAlign: 'center' }}>
                 <div style={{ fontSize: 24, marginBottom: 4 }}>{mt.icon}</div>{mt.label}
                 <div style={{ fontSize: 10, fontWeight: 400, marginTop: 2, opacity: 0.7 }}>{mt.desc}</div>
@@ -1379,7 +1391,10 @@ function AppShell({ currentUser, onLogout }) {
           )}
 
           {nm.type === 'from-dock' && (
-            <Input label="Need a Trailer Back? (optional)" options={[{ value: '', label: '— No, just pull —' }, ...TRAILER_TYPES.map(t => ({ value: t, label: t }))]} value={nm.requestBackType || ''} onChange={v => setNm(p => ({ ...p, requestBackType: v }))} />
+            <Input label="Need a Trailer Back? (optional)" options={[{ value: '', label: '— No, just pull —' }, ...TRAILER_TYPES.map(t => ({ value: t, label: t }))]} value={nm.requestBackType || ''} onChange={v => setNm(p => ({ ...p, requestBackType: v, requestBackNumber: v ? p.requestBackNumber : '' }))} />
+          )}
+          {nm.type === 'from-dock' && nm.requestBackType && (
+            <Input label="Next Inbound Trailer # (optional)" value={nm.requestBackNumber || ''} onChange={v => setNm(p => ({ ...p, requestBackNumber: v }))} placeholder="e.g. 789123 — leave blank for any" />
           )}
 
           <Input label="Priority" options={[{ value: 'normal', label: 'Normal' }, { value: 'urgent', label: '🔴 Urgent' }]} value={nm.priority} onChange={v => setNm(p => ({ ...p, priority: v }))} />
@@ -1434,7 +1449,7 @@ function AppShell({ currentUser, onLogout }) {
             {completeModal.trailer_number && cmFields.trailerNumber && completeModal.trailer_number === cmFields.trailerNumber && (
               <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Trailer # matches request</div>
             )}
-            {completeModal.requested_trailer_type && <div style={{ padding: '8px 12px', background: T.in + '15', borderRadius: 6, fontSize: 12, color: T.in }}>ℹ️ A new "To Dock" request for a <strong>{completeModal.requested_trailer_type}</strong> will be auto-created when you complete this.</div>}
+            {completeModal.requested_trailer_type && (() => { const nib = (completeModal.notes || '').match(/\[NEXT_INBOUND #([^\]]+)\]/); return <div style={{ padding: '8px 12px', background: T.in + '15', borderRadius: 6, fontSize: 12, color: T.in }}>ℹ️ A new "To Dock" request {nib ? <>for inbound trailer <strong>#{nib[1]}</strong></> : <>for a <strong>{completeModal.requested_trailer_type}</strong></>} will be auto-created when you complete this.</div>; })()}
           </>}
 
           {completeModal.type === 'yard-move' && <>

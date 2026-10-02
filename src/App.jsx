@@ -278,6 +278,8 @@ function AppShell({ currentUser, onLogout }) {
   const [selectedYardLoc, setSelectedYardLoc] = useState(null);
   const [shiftOffset, setShiftOffset] = useState(0); // 0 = current, 1 = previous, 2 = 2 shifts ago, etc.
   const [showGESBulk, setShowGESBulk] = useState(false);
+  const [showHostlerYardMove, setShowHostlerYardMove] = useState(false);
+  const [hymFields, setHymFields] = useState({ trailerNumber: '', reason: '', markOOS: false });
   const [gesBulkRows, setGesBulkRows] = useState({}); // { D026: { checked: false, inboundTrailer: '', trailerType: '' }, ... }
   const [dailyStatsRange, setDailyStatsRange] = useState({ start: new Date(Date.now() - 86400000).toISOString().slice(0, 10), end: new Date(Date.now() - 86400000).toISOString().slice(0, 10) });
   const [dailyStatsMoves, setDailyStatsMoves] = useState([]);
@@ -1079,7 +1081,7 @@ function AppShell({ currentUser, onLogout }) {
       {m.notes && <div style={{ fontSize: 12, color: T.tm, marginBottom: 12, padding: '8px 12px', background: T.sa, borderRadius: 6, borderLeft: `3px solid ${T.wn}` }}>📝 {m.notes}</div>}{actions}</Card>);
 
     return (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Card style={{ borderLeft: `4px solid ${currentUser.color}` }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><div style={{ fontSize: 20, fontWeight: 800 }}>{currentUser.name}</div><div style={{ fontSize: 13, color: T.tm }}>{myAct.length} in progress · {myDone.filter(m => m.status === 'completed').length} completed this shift</div></div><div style={{ display: 'flex', gap: 8 }}><Badge color={T.in}>{myAct.length} Active</Badge><Badge color={T.ok}>{myDone.filter(m => m.status === 'completed').length} Done</Badge></div></div></Card>
+      <Card style={{ borderLeft: `4px solid ${currentUser.color}` }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><div style={{ fontSize: 20, fontWeight: 800 }}>{currentUser.name}</div><div style={{ fontSize: 13, color: T.tm }}>{myAct.length} in progress · {myDone.filter(m => m.status === 'completed').length} completed this shift</div></div><div style={{ display: 'flex', gap: 8 }}><Btn onClick={() => { setHymFields({ trailerNumber: '', reason: '', markOOS: false }); setShowHostlerYardMove(true); }}>🔀 Log Yard Move</Btn><Badge color={T.in}>{myAct.length} Active</Badge><Badge color={T.ok}>{myDone.filter(m => m.status === 'completed').length} Done</Badge></div></div></Card>
 
       {myAct.length > 0 && <><h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: T.in, textTransform: 'uppercase' }}>🔄 My Active Moves</h3>{myAct.map(m => <MC key={m.id} m={m} actions={
         <div style={{ display: 'flex', gap: 8 }}>
@@ -2204,6 +2206,89 @@ function AppShell({ currentUser, onLogout }) {
             </div>
           </div>);
         })()}
+      </Modal>
+
+      {/* Hostler Yard Move Modal */}
+      <Modal open={showHostlerYardMove} onClose={() => setShowHostlerYardMove(false)} title="🔀 Log Yard Move" width={460}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ padding: '10px 14px', background: T.in + '15', borderRadius: 8, fontSize: 12, color: T.in }}>ℹ️ Use this to log a trailer shuffle within the yard. This does not create a dock request.</div>
+          <Input label="Trailer # *" value={hymFields.trailerNumber} onChange={v => setHymFields(p => ({ ...p, trailerNumber: v }))} placeholder="e.g. 4521" />
+          {hymFields.trailerNumber && trailerMap[hymFields.trailerNumber] && <div style={{ padding: '8px 12px', background: T.ok + '15', borderRadius: 6, fontSize: 12, color: T.ok }}>✓ Found: {trailerMap[hymFields.trailerNumber].type} — {trailerMap[hymFields.trailerNumber].status} at {locLabel(trailerMap[hymFields.trailerNumber].location_id)}</div>}
+          {hymFields.trailerNumber && (() => { const oos = trailers.find(t => t.number === hymFields.trailerNumber && t.active === false); return oos ? <div style={{ padding: '8px 12px', background: T.dg + '15', border: `1px solid ${T.dg}55`, borderRadius: 6, fontSize: 12, color: T.dg }}>⛔ This trailer is Out of Service{oos.inactive_reason ? ` — ${oos.inactive_reason}` : ''}</div> : null; })()}
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.tm, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Reason for Move *</label>
+            <textarea value={hymFields.reason} onChange={e => setHymFields(p => ({ ...p, reason: e.target.value }))} placeholder="e.g. Relocating to make room for inbound, moving to fuel island, etc." rows={3} style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: T.sa, border: `1px solid ${T.bd}`, color: T.tx, fontSize: 14, fontFamily: 'inherit', outline: 'none', resize: 'vertical' }} />
+          </div>
+          {(() => {
+            const tNum = hymFields.trailerNumber;
+            const ex = tNum ? trailerMap[tNum] : null;
+            const isCurrentlyOOS = ex && ex.active === false;
+            const isNew = tNum && !ex;
+            const accentColor = isCurrentlyOOS ? T.ok : T.dg;
+            const icon = isCurrentlyOOS ? '✅' : '⛔';
+            const label = isCurrentlyOOS ? 'Return Trailer to Service' : 'Flag Trailer as Out of Service';
+            const desc = isCurrentlyOOS
+              ? 'Clears the OOS flag and puts the trailer back in active status.'
+              : `Marks the trailer OOS using the reason above.${isNew ? ' Trailer will be added to inventory as OOS.' : ''}`;
+            return (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: hymFields.markOOS ? accentColor + '15' : T.sa, border: `1px solid ${hymFields.markOOS ? accentColor + '55' : T.bd}`, borderRadius: 8, cursor: 'pointer', transition: 'all .15s' }}>
+                <input type="checkbox" checked={hymFields.markOOS} onChange={e => setHymFields(p => ({ ...p, markOOS: e.target.checked }))} style={{ width: 18, height: 18, accentColor, cursor: 'pointer' }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: hymFields.markOOS ? accentColor : T.tx }}>{icon} {label}</div>
+                  <div style={{ fontSize: 11, color: T.tm, marginTop: 2 }}>{desc}</div>
+                </div>
+              </label>
+            );
+          })()}
+          <div style={{ padding: '10px 14px', background: T.sa, borderRadius: 8, fontSize: 12, color: T.tm, display: 'flex', justifyContent: 'space-between' }}>
+            <span>Logged by:</span><strong style={{ color: T.tx }}>{currentUser.name}</strong>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+            <Btn variant="secondary" onClick={() => setShowHostlerYardMove(false)}>Cancel</Btn>
+            <Btn disabled={!hymFields.trailerNumber.trim() || !hymFields.reason.trim()} onClick={async () => {
+              const tNum = hymFields.trailerNumber.trim();
+              const existing = trailerMap[tNum];
+              const isCurrentlyOOS = existing && existing.active === false;
+              let statusTag = '';
+              if (hymFields.markOOS) {
+                if (isCurrentlyOOS) {
+                  // Return to service
+                  await db.toggleTrailerActive(existing.id, true, null);
+                  statusTag = ' [RETURNED TO SERVICE]';
+                } else if (existing) {
+                  // Flag existing as OOS
+                  await db.toggleTrailerActive(existing.id, false, hymFields.reason.trim());
+                  statusTag = ' [FLAGGED OOS]';
+                } else {
+                  // Create new trailer as OOS
+                  const { data: newT } = await db.createTrailer({ number: tNum, type: '', status: 'yard', location_id: null, carrier: '', notes: '' });
+                  if (newT) await db.toggleTrailerActive(newT.id, false, hymFields.reason.trim());
+                  statusTag = ' [FLAGGED OOS]';
+                }
+              }
+              const moveData = {
+                type: 'yard-move',
+                trailer_number: tNum,
+                trailer_type: existing?.type || '',
+                from_location: existing?.location_id || null,
+                to_location: null,
+                requested_by: currentUser.name,
+                requested_by_user: currentUser.id,
+                claimed_by: currentUser.id,
+                claimed_at: new Date().toISOString(),
+                started_at: new Date().toISOString(),
+                priority: 'normal',
+                notes: `[YARD SHUFFLE]${statusTag} ${hymFields.reason.trim()}`,
+                status: 'in-progress',
+              };
+              await db.createMove(moveData);
+              setShowHostlerYardMove(false);
+              setHymFields({ trailerNumber: '', reason: '', markOOS: false });
+              db.fetchMoves().then(r => setMoves(r.data || []));
+              db.fetchTrailers().then(r => setTrailers(r.data || []));
+            }}>🔀 Log Yard Move</Btn>
+          </div>
+        </div>
       </Modal>
     </div>
   );
